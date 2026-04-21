@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: ..
+      dockerfile: docker_test/Dockerfile
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

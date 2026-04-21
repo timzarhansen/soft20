@@ -61,7 +61,7 @@ if(USE_CUFFT)
     # CUDA required for cuFFT backend
     find_package(CUDAToolkit 11.0 REQUIRED)
     enable_language(CUDA)
-    set(CMAKE_CUDA_ARCHITECTURES "60 70 75 80 86")  # Pascal through Ampere
+    set(CMAKE_CUDA_ARCHITECTURES "60 70 75 80 86 87")  # Pascal through Hopper
     add_definitions(-DUSE_CUFFT)
     
     # cuFFT sources
@@ -192,8 +192,24 @@ target_link_libraries(test_soft_fftw_pc soft20 m)
 
 # Conditional test executables based on backend
 if(USE_CUFFT)
+    # Basic cuFFT backend test
     add_executable(test_cufft_backend examples/test_cufft_backend.cu)
     target_link_libraries(test_cufft_backend soft20 cuda cufft)
+    
+    # Comparison test: FFTW vs cuFFT (requires both backends)
+    find_package(FFTW3 REQUIRED)
+    add_executable(test_cufft_compare examples/test_cufft_compare.cu)
+    target_link_libraries(test_cufft_compare 
+        soft20 
+        cuda 
+        cufft 
+        fftw3 
+        m
+    )
+    set_target_properties(test_cufft_compare PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+    )
+    message(STATUS "Built test_cufft_compare - compares FFTW vs cuFFT backends")
 endif()
 
 ament_package()
