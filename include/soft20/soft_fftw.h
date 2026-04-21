@@ -45,24 +45,33 @@ extern "C"
 {
 #endif
 
+#ifdef USE_CUFFT
+    #include <cuda.h>
+    #include <cufft.h>
+    // cuFFT uses cuDoubleComplex which is compatible with fftw_complex layout
+    typedef cuDoubleComplex fftw_complex;
+#else
+    #include <fftw3.h>
+#endif
+
 extern void Forward_SO3_Naive_fftw( int ,
-				    fftw_complex * ,
-				    fftw_complex * ,
-				    fftw_complex * ,
-				    fftw_complex * ,
-				    double * ,
-				    double * ,
-				    fftw_plan * ,
-				    int ) ;
+                                    fftw_complex * ,
+                                    fftw_complex * ,
+                                    fftw_complex * ,
+                                    fftw_complex * ,
+                                    double * ,
+                                    double * ,
+                                    void * ,  // fftw_plan* for CPU, unused for GPU
+                                    int ) ;
 
 extern void Inverse_SO3_Naive_fftw( int ,
-				    fftw_complex * ,
-				    fftw_complex * ,
-				    fftw_complex * ,
-				    fftw_complex * ,
-				    double * ,
-				    fftw_plan * ,
-				    int ) ;
+                                    fftw_complex * ,
+                                    fftw_complex * ,
+                                    fftw_complex * ,
+                                    fftw_complex * ,
+                                    double * ,
+                                    void * ,  // fftw_plan* for CPU, unused for GPU
+                                    int ) ;
 
 #ifdef __cplusplus
 }
