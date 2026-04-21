@@ -7,6 +7,9 @@ project(soft20)
 find_package(ament_cmake REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 
+# cuFFT option: enable GPU backend
+option(USE_CUFFT "Use cuFFT GPU backend instead of FFTW CPU backend" OFF)
+
 #find_package(catkin REQUIRED COMPONENTS)
 
 
@@ -54,8 +57,29 @@ include_directories(
 #)
 
 
-add_library(soft20
-
+if(USE_CUFFT)
+    # CUDA required for cuFFT backend
+    find_package(CUDAToolkit 11.0 REQUIRED)
+    enable_language(CUDA)
+    set(CMAKE_CUDA_ARCHITECTURES "60 70 75 80 86")  # Pascal through Ampere
+    add_definitions(-DUSE_CUFFT)
+    
+    # cuFFT sources
+    add_library(soft20
+        src/lib1/soft_cufft.cu
+        src/lib1/s2_semi_memo_cufft.cu
+        src/lib1/wrap_soft_cufft.cu
+        src/common/csecond.c
+        src/common/makeweights.c
+        src/common/makeWigner.c
+        src/common/s2_primitive.c
+        src/common/utils_so3.c
+        src/common/wignerTransforms.c
+    )
+    target_link_libraries(soft20 cuda cufft)
+else()
+    # Default: FFTW CPU backend
+    add_library(soft20
         src/lib1/rotate_so3_fftw.c
         src/lib1/rotate_so3_utils.c
         src/lib1/s2_cospmls.c
@@ -78,9 +102,10 @@ add_library(soft20
         src/common/s2_primitive.c
         src/common/utils_so3.c
         src/common/wignerTransforms.c
-)
+    )
 
-target_link_libraries(soft20 fftw3)
+    target_link_libraries(soft20 fftw3)
+endif()
 
 
 install(
@@ -164,5 +189,11 @@ target_link_libraries(test_soft_fftw_nt soft20 m)
 
 add_executable(test_soft_fftw_pc examples1/test_soft_fftw_pc.c)
 target_link_libraries(test_soft_fftw_pc soft20 m)
+
+# Conditional test executables based on backend
+if(USE_CUFFT)
+    add_executable(test_cufft_backend examples/test_cufft_backend.cu)
+    target_link_libraries(test_cufft_backend soft20 cuda cufft)
+endif()
 
 ament_package()
