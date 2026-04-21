@@ -1,71 +1,69 @@
 /***************************************************************************
-  Wrapper Functions for cuFFT SO(3) Transforms
-  
-  High-level API matching FFTW version for seamless integration
- **************************************************************************/
+  SOFT: SO(3) Fourier Transforms - cuFFT Wrapper Functions
+  Version 2.0
 
-#include <cuda_runtime.h>
+  High-level wrapper functions with automatic memory management
+***************************************************************************/
+
+#include <cuda.h>
 #include <cufft.h>
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
 #include "soft_fftw.h"
 #include "makeweights.h"
 
-// Error checking macros
+// CUDA error checking
 #define CUDA_CHECK(call) \
     do { \
         cudaError_t err = call; \
         if (err != cudaSuccess) { \
-            fprintf(stderr, "CUDA error at %s:%d: %s\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
-            exit(1); \
+            fprintf(stderr, "CUDA error at %s:%d: %s\n", __FILE__, __LINE__, \
+                    cudaGetErrorString(err)); \
+            exit(EXIT_FAILURE); \
+        } \
+    } while(0)
+
+#define CUFFT_CHECK(call) \
+    do { \
+        cufftResult err = call; \
+        if (err != CUFFT_SUCCESS) { \
+            fprintf(stderr, "cuFFT error at %s:%d: %d\n", __FILE__, __LINE__, err); \
+            exit(EXIT_FAILURE); \
         } \
     } while(0)
 
 /**
- * Forward SO(3) transform wrapper
+ * Forward SO(3) transform with automatic workspace management
  * 
- * Simplified interface that handles workspace allocation internally
+ * bw: bandwidth
+ * signal: input signal of size (2*bw)^3
+ * coeffs: output coefficients of size (4*bw^3-bw)/3
+ * flag: 0 = complex, 1 = real
  */
 void Forward_SO3_Naive_fftw_W(int bw,
-                               fftw_complex *signal,
-                               fftw_complex *coeffs,
-                               int flag)
+                              fftw_complex *signal,
+                              fftw_complex *coeffs,
+                              int flag)
 {
     int n = 2 * bw;
     int n3 = n * n * n;
-    int totalCoeffs = (4 * bw * bw * bw - bw) / 3;
     
     // Allocate workspaces
     fftw_complex *workspace_cx = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
     fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
     double *workspace_re = (double*)malloc(sizeof(double) * (12 * n + n * bw));
-    double *weights = (double*)malloc(sizeof(double) * (4 * bw));
-    
-    // Create FFTW plan (used for metadata even in cuFFT version)
-    fftw_plan p1;
-    int rank = 2;
-    int na[2] = {1, n};
-    int inembed[2] = {n, n * n};
-    int onembed[2] = {n, n * n};
-    int howmany = n * n;
-    int istride = 1, idist = n;
-    int ostride = 1, odist = n;
-    
-    p1 = fftw_plan_many_dft(rank, na, howmany,
-                            workspace_cx2, inembed, istride, idist,
-                            workspace_cx, onembed, ostride, odist,
-                            FFTW_BACKWARD, FFTW_ESTIMATE);
+    double *weights = (double*)malloc(sizeof(double) * (2 * bw));
     
     // Generate quadrature weights
     makeweights(bw, weights);
     
-    // Call the main transform
+    // Call the transform
     Forward_SO3_Naive_fftw(bw, signal, coeffs, workspace_cx, workspace_cx2,
-                           workspace_re, weights, &p1, flag);
+                           workspace_re, weights, NULL, flag);
     
     // Cleanup
-    fftw_destroy_plan(p1);
     free(workspace_cx);
     free(workspace_cx2);
     free(workspace_re);
@@ -73,14 +71,17 @@ void Forward_SO3_Naive_fftw_W(int bw,
 }
 
 /**
- * Inverse SO(3) transform wrapper
+ * Inverse SO(3) transform with automatic workspace management
  * 
- * Simplified interface that handles workspace allocation internally
+ * bw: bandwidth
+ * coeffs: input coefficients of size (4*bw^3-bw)/3
+ * signal: output signal of size (2*bw)^3
+ * flag: 0 = complex, 1 = real
  */
 void Inverse_SO3_Naive_fftw_W(int bw,
-                               fftw_complex *coeffs,
-                               fftw_complex *signal,
-                               int flag)
+                              fftw_complex *coeffs,
+                              fftw_complex *signal,
+                              int flag)
 {
     int n = 2 * bw;
     int n3 = n * n * n;
@@ -90,27 +91,11 @@ void Inverse_SO3_Naive_fftw_W(int bw,
     fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
     double *workspace_re = (double*)malloc(sizeof(double) * (12 * n + n * bw));
     
-    // Create FFTW plan (used for metadata even in cuFFT version)
-    fftw_plan p1;
-    int rank = 2;
-    int na[2] = {1, n};
-    int inembed[2] = {n, n * n};
-    int onembed[2] = {n, n * n};
-    int howmany = n * n;
-    int istride = 1, idist = n;
-    int ostride = 1, odist = n;
-    
-    p1 = fftw_plan_many_dft(rank, na, howmany,
-                            workspace_cx2, inembed, istride, idist,
-                            workspace_cx, onembed, ostride, odist,
-                            FFTW_FORWARD, FFTW_ESTIMATE);
-    
-    // Call the main transform
+    // Call the transform
     Inverse_SO3_Naive_fftw(bw, coeffs, signal, workspace_cx, workspace_cx2,
-                           workspace_re, &p1, flag);
+                           workspace_re, NULL, flag);
     
     // Cleanup
-    fftw_destroy_plan(p1);
     free(workspace_cx);
     free(workspace_cx2);
     free(workspace_re);

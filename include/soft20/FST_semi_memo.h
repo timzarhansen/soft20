@@ -44,7 +44,9 @@ extern void FST_semi_memo( double *, double *,
 			   int , double **,
 			   double *,
 			   int ,
-			   int );
+			   int ,
+			   void *,  // fftw_plan* or cufftHandle*
+			   double * );
 
 extern void InvFST_semi_memo(double *, double *, 
 			     double *, double *,
@@ -52,7 +54,9 @@ extern void InvFST_semi_memo(double *, double *,
 			     double **,
 			     double *,
 			     int ,
-			     int );
+			     int ,
+			     void *,  // fftw_plan* or cufftHandle*
+			     double * );
 
 
 #ifdef __cplusplus

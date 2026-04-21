@@ -6,3 +6,4 @@ For ROS use purpose
 
 http://www.cs.dartmouth.edu/~geelong/soft/index.html#SOFT
 
+https://github.com/artivis/soft20
