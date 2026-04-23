@@ -5,11 +5,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_ARCHITECTURES "80")
 
-find_package(FFTW3 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFTW3 REQUIRED fftw3)
 find_package(CUDAToolkit 11.0 REQUIRED)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../include/soft20)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../src/lib1)
+include_directories(${FFTW3_INCLUDE_DIRS})
 
 set(LIB1_C_SOURCES
     ../src/lib1/rotate_so3_fftw.c
@@ -49,7 +51,7 @@ add_library(soft20_fftw STATIC
     ${COMMON_C_SOURCES}
 )
 
-target_link_libraries(soft20_fftw PRIVATE fftw3 m)
+target_link_libraries(soft20_fftw PRIVATE ${FFTW3_LIBRARIES} m)
 
 add_library(soft20_cufft STATIC
     ${LIB1_CUDA_SOURCES}
@@ -66,6 +68,6 @@ target_link_libraries(test_cufft_compare
     soft20_cufft
     cuda
     cufft
-    fftw3
+    ${FFTW3_LIBRARIES}
     m
 )
