@@ -11,21 +11,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Copy soft20 source
-COPY . /workspace/soft20
-WORKDIR /workspace/soft20
+WORKDIR /workspace
 
-# Build with both FFTW and cuFFT backends enabled
+# Copy standalone CMakeLists.txt
+COPY docker_test/CMakeLists.txt /workspace/
+
+# Copy soft20 source and include directories
+COPY ../soft20/src /workspace/soft20/src
+COPY ../soft20/include /workspace/soft20/include
+
+# Build with standalone CMakeLists.txt (builds both FFTW and cuFFT backends)
 RUN mkdir -p build && cd build && \
     cmake .. \
-        -DUSE_CUFFT=ON \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CUDA_ARCHITECTURES="60 70 75 80 86 87" \
     && make -j$(nproc) test_cufft_compare \
-    && strip examples/test_cufft_compare
+    && strip build/test_cufft_compare
 
 # Set entrypoint to run the comparison test
-ENTRYPOINT ["/workspace/soft20/build/examples/test_cufft_compare"]
+ENTRYPOINT ["/workspace/build/test_cufft_compare"]
 
 # Default command (can be overridden)
 CMD []
