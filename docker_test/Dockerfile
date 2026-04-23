@@ -24,7 +24,7 @@ COPY include /workspace/soft20/include
 RUN mkdir -p build && cd build && \
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CUDA_ARCHITECTURES="70 80 86" \
+        -DCMAKE_CUDA_ARCHITECTURES="80" \
     && make -j$(nproc) test_cufft_compare \
     && strip build/test_cufft_compare
 
