@@ -17,8 +17,8 @@ WORKDIR /workspace
 COPY docker_test/CMakeLists.txt /workspace/
 
 # Copy soft20 source and include directories
-COPY ../soft20/src /workspace/soft20/src
-COPY ../soft20/include /workspace/soft20/include
+COPY src /workspace/soft20/src
+COPY include /workspace/soft20/include
 
 # Build with standalone CMakeLists.txt (builds both FFTW and cuFFT backends)
 RUN mkdir -p build && cd build && \
