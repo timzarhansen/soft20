@@ -7,6 +7,7 @@
 
 #include <cuda.h>
 #include <cufft.h>
+#include <fftw3.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,7 +58,8 @@ void FST_semi_memo(double *rdata, double *idata,
                    double *workspace,
                    int dataformat,
                    int cutoff,
-                   void *fftPlan,  // cufftHandle* for GPU, fftw_plan* for CPU
+                   fftw_plan *dctPlan,
+                   fftw_plan *fftPlan,
                    double *weights)
 {
     int size = 2 * bw;
@@ -88,20 +90,20 @@ void FST_semi_memo(double *rdata, double *idata,
     CUDA_CHECK(cudaMemcpy(d_rdata, rdata, data_size, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_idata, idata, data_size, cudaMemcpyHostToDevice));
     
-    // Create cuFFT plan for many 1D FFTs
-    // We need to FFT along phi (rows), so: many = size, n = size
+    // Create cuFFT plan for many 1D FFTs (split real/imag data)
     int rank = 1;
     int n = size;
     int howmany = size;
-    
-    CUFFT_CHECK(cufftPlanMany(&plan, rank, &n,
-                              d_rdata, 1, size, d_idata, 1, size,
-                              d_rres, 1, size, d_ires, 1, size,
-                              CUFFT_C2C, howmany));
-    
+
+    CUFFT_CHECK(cufftPlanManySplitD(&plan, rank, &n,
+                                    d_rdata, 1, size,
+                                    d_idata, 1, size,
+                                    d_rres, 1, size,
+                                    d_ires, 1, size,
+                                    howmany));
+
     // Stage 1: FFT along phi (rows)
-    CUFFT_CHECK(cufftExecC2C(plan, d_rdata, d_rres, CUFFT_FORWARD));
-    CUFFT_CHECK(cufftExecC2C(plan, d_idata, d_ires, CUFFT_FORWARD));
+    CUFFT_CHECK(cufftExecSplitD(plan, d_rdata, d_idata, d_rres, d_ires, CUFFT_FORWARD));
     
     // Copy results back to host
     CUDA_CHECK(cudaMemcpy(rres, d_rres, data_size, cudaMemcpyDeviceToHost));
@@ -150,26 +152,24 @@ void FST_semi_memo(double *rdata, double *idata,
             idataptr += (bw - m);
         } else {
             // Naive algorithm for high orders
-            NaiveReduced(rres + (m * size),
-                        bw,
-                        m,
-                        fltres,
-                        scratchpad,
-                        seminaive_naive_table[m],
-                        weights,
-                        NULL);
-            
+            Naive_AnalysisX(rres + (m * size),
+                            bw,
+                            m,
+                            weights,
+                            fltres,
+                            seminaive_naive_table[m],
+                            scratchpad);
+
             memcpy(rdataptr, fltres, sizeof(double) * (bw - m));
             rdataptr += (bw - m);
-            
-            NaiveReduced(ires + (m * size),
-                        bw,
-                        m,
-                        fltres,
-                        scratchpad,
-                        seminaive_naive_table[m],
-                        weights,
-                        NULL);
+
+            Naive_AnalysisX(ires + (m * size),
+                            bw,
+                            m,
+                            weights,
+                            fltres,
+                            seminaive_naive_table[m],
+                            scratchpad);
             
             memcpy(idataptr, fltres, sizeof(double) * (bw - m));
             idataptr += (bw - m);
@@ -195,50 +195,58 @@ void InvFST_semi_memo(double *rcoeffs, double *icoeffs,
                       double *workspace,
                       int dataformat,
                       int cutoff,
-                      void *fftPlan,
-                      double *weights)
+                      fftw_plan *idctPlan,
+                      fftw_plan *ifftPlan)
 {
     int size = 2 * bw;
-    int m, j;
+    int m, j, i;
     double tmpSize = 1.0 / ((double)size);
     double tmpA = sqrt(2.0 * M_PI);
-    
+
     // Workspace pointers
     double *rres = workspace;
     double *ires = rres + (size * size);
     double *fltres = ires + (size * size);
-    double *eval_pts = fltres + bw;
+    double *sin_values = fltres + (2 * bw);
+    double *eval_pts = sin_values + (2 * bw);
     double *scratchpad = eval_pts + (2 * bw);
-    
+
     // Device pointers
     double *d_rres, *d_ires, *d_rdata, *d_idata;
     cufftHandle plan;
-    
+
     size_t data_size = sizeof(double) * size * size;
-    
+
     CUDA_CHECK(cudaMalloc((void**)&d_rres, data_size));
     CUDA_CHECK(cudaMalloc((void**)&d_ires, data_size));
     CUDA_CHECK(cudaMalloc((void**)&d_rdata, data_size));
     CUDA_CHECK(cudaMalloc((void**)&d_idata, data_size));
-    
+
     // Initialize device output to zero
     CUDA_CHECK(cudaMemset(d_rdata, 0, data_size));
     CUDA_CHECK(cudaMemset(d_idata, 0, data_size));
-    
-    // Create cuFFT plan
+
+    // Precompute eval points and sin values
+    ArcCosEvalPts(size, eval_pts);
+    for (i = 0; i < size; i++)
+        sin_values[i] = sin(eval_pts[i]);
+
+    // Create cuFFT plan (split real/imag data)
     int rank = 1;
     int n = size;
     int howmany = size;
-    
-    CUFFT_CHECK(cufftPlanMany(&plan, rank, &n,
-                              d_rres, 1, size, d_ires, 1, size,
-                              d_rdata, 1, size, d_idata, 1, size,
-                              CUFFT_C2C, howmany));
-    
+
+    CUFFT_CHECK(cufftPlanManySplitD(&plan, rank, &n,
+                                    d_rres, 1, size,
+                                    d_ires, 1, size,
+                                    d_rdata, 1, size,
+                                    d_idata, 1, size,
+                                    howmany));
+
     // Point to start of input coefficient buffers
     double *rcoeffptr = rcoeffs;
     double *icoeffptr = icoeffs;
-    
+
     // For each order m, do inverse transform
     for (m = 0; m < bw; m++) {
         if (m < cutoff) {
@@ -247,74 +255,67 @@ void InvFST_semi_memo(double *rcoeffs, double *icoeffs,
                                bw,
                                m,
                                fltres,
-                               scratchpad,
                                seminaive_naive_table[m],
-                               weights,
-                               NULL);
-            
+                               sin_values,
+                               scratchpad,
+                               idctPlan);
+
             // Copy to device workspace
-            CUDA_CHECK(cudaMemcpy(d_rres + (m * size), fltres, 
+            CUDA_CHECK(cudaMemcpy(d_rres + (m * size), fltres,
                                  sizeof(double) * size, cudaMemcpyHostToDevice));
-            
+
             InvSemiNaiveReduced(icoeffptr,
                                bw,
                                m,
                                fltres,
-                               scratchpad,
                                seminaive_naive_table[m],
-                               weights,
-                               NULL);
-            
+                               sin_values,
+                               scratchpad,
+                               idctPlan);
+
             CUDA_CHECK(cudaMemcpy(d_ires + (m * size), fltres,
                                  sizeof(double) * size, cudaMemcpyHostToDevice));
-            
+
             rcoeffptr += (bw - m);
             icoeffptr += (bw - m);
         } else {
             // Naive inverse
-            InvNaiveReduced(rcoeffptr,
-                           bw,
-                           m,
-                           fltres,
-                           scratchpad,
-                           seminaive_naive_table[m],
-                           weights,
-                           NULL);
-            
+            Naive_SynthesizeX(rcoeffptr,
+                             bw,
+                             m,
+                             fltres,
+                             seminaive_naive_table[m]);
+
             CUDA_CHECK(cudaMemcpy(d_rres + (m * size), fltres,
                                  sizeof(double) * size, cudaMemcpyHostToDevice));
-            
-            InvNaiveReduced(icoeffptr,
-                           bw,
-                           m,
-                           fltres,
-                           scratchpad,
-                           seminaive_naive_table[m],
-                           weights,
-                           NULL);
-            
+
+            Naive_SynthesizeX(icoeffptr,
+                             bw,
+                             m,
+                             fltres,
+                             seminaive_naive_table[m]);
+
             CUDA_CHECK(cudaMemcpy(d_ires + (m * size), fltres,
                                  sizeof(double) * size, cudaMemcpyHostToDevice));
-            
+
             rcoeffptr += (bw - m);
             icoeffptr += (bw - m);
         }
     }
-    
+
     // Inverse FFT along phi
-    CUFFT_CHECK(cufftExecC2C(plan, d_rres, d_rdata, CUFFT_INVERSE));
-    CUFFT_CHECK(cufftExecC2C(plan, d_ires, d_idata, CUFFT_INVERSE));
-    
+    CUFFT_CHECK(cufftExecSplitD(plan, d_rres, d_ires, d_rdata, d_idata, CUFFT_INVERSE));
+
     // Copy back and normalize
     CUDA_CHECK(cudaMemcpy(rdata, d_rdata, data_size, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(idata, d_idata, data_size, cudaMemcpyDeviceToHost));
-    
+
     tmpSize /= tmpA;
     for (j = 0; j < size * size; j++) {
         rdata[j] *= tmpSize;
         idata[j] *= tmpSize;
     }
-    
+
     // Cleanup
     CUDA_CHECK(cudaFree(d_rres));
     CUDA_CHECK(cudaFree(d_ires));

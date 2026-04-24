@@ -32,6 +32,7 @@
 
 #include <cuda.h>
 #include <cufft.h>
+#include <fftw3.h>
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
@@ -125,14 +126,14 @@ void Forward_SO3_Naive_fftw(int bw,
     // Plan: many 2D FFTs of size n x n
     int rank = 2;
     int dims[2] = {n, n};
+    int inembed[2] = {n, n};
+    int onembed[2] = {n, n};
     int howmany = n;  // n transforms
-    
+
     CUFFT_CHECK(cufftPlanMany(&plan, rank, dims,
-                              d_workspace_cx2, n, n*n, CUFFT_C2C,
-                              d_workspace_cx, n, n*n, CUFFT_C2C,
-                              howmany));
-    
-    // Precompute sines and cosines (same as FFTW version)
+                              inembed, 1, n * n,
+                              onembed, 1, n * n,
+                              CUFFT_C2C, howmany));
     sinPts = workspace_re;
     cosPts = sinPts + n;
     sinPts2 = cosPts + n;
@@ -259,14 +260,14 @@ void Inverse_SO3_Naive_fftw(int bw,
     // Create cuFFT plan
     int rank = 2;
     int dims[2] = {n, n};
+    int inembed[2] = {n, n};
+    int onembed[2] = {n, n};
     int howmany = n;
-    
+
     CUFFT_CHECK(cufftPlanMany(&plan, rank, dims,
-                              d_workspace_cx, n, n*n, CUFFT_C2C,
-                              d_workspace_cx2, n, n*n, CUFFT_C2C,
-                              howmany));
-    
-    // Precompute sines and cosines
+                              inembed, 1, n * n,
+                              onembed, 1, n * n,
+                              CUFFT_C2C, howmany));
     sinPts = workspace_re;
     cosPts = sinPts + n;
     sinPts2 = cosPts + n;

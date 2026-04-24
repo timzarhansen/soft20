@@ -44,6 +44,7 @@
 #include "fftw3.h"
 #include "s2_primitive.h"
 #include "FST_semi_memo.h"
+#include "makeweights.h"
 
 /*****************************************************************/
 /*****************************************************************/
@@ -1224,40 +1225,90 @@ void rotateCoefAll_mem( int bw,
 */
 
 void rotateFct_mem( int bw, int degOut,
-		double *sigR, double *sigI,
-		double alpha, double beta, double gamma,
-		double *scratch,
-		double **spharmonic_pml_table,
-		double **transpose_spharmonic_pml_table )
+ 		double *sigR, double *sigI,
+ 		double alpha, double beta, double gamma,
+ 		double *scratch,
+ 		double **spharmonic_pml_table,
+ 		double **transpose_spharmonic_pml_table )
 {
   double *rcoeffs, *icoeffs, *workspace ;
+  double *weights;
+  int size, i;
+  int na[2], inembed[2], onembed[2];
+  int rank, howmany, istride, idist, ostride, odist;
+  fftw_plan dctPlan, fftPlan, idctPlan, ifftPlan;
+
+  size = 2 * bw;
 
   rcoeffs = scratch ;
   icoeffs = rcoeffs + (bw*bw) ;
   workspace = icoeffs + (bw*bw) ;
 
+  /* Create FFTW plan for phi-direction FFTs (size x size grid) */
+  rank = 2;
+  howmany = 1;
+  inembed[0] = size;
+  inembed[1] = size;
+  onembed[0] = size;
+  onembed[1] = size;
+  istride = 1;
+  ostride = 1;
+  idist = size;
+  odist = size;
+  na[0] = size;
+  na[1] = 1;
+
+  fftPlan = fftw_plan_guru_split_dft( rank, na,
+              inembed, istride, idist,
+              onembed, ostride, odist,
+              FFTW_BACKWARD, FFTW_ESTIMATE );
+
+  ifftPlan = fftw_plan_guru_split_dft( rank, na,
+               inembed, istride, idist,
+               onembed, ostride, odist,
+               FFTW_FORWARD, FFTW_ESTIMATE );
+
+  /* Create DCT plan for SemiNaiveReduced */
+  dctPlan = fftw_plan_r2r_1d( size, workspace, workspace,
+              FFTW_REDFT10, FFTW_ESTIMATE );
+  idctPlan = fftw_plan_r2r_1d( size, workspace, workspace,
+               FFTW_REDFT01, FFTW_ESTIMATE );
+
+  /* Compute quadrature weights */
+  weights = (double *) malloc( sizeof(double) * size );
+  makeweights( bw, weights );
+
   /* compute spherical coefficients of input signal */
   FST_semi_memo( sigR, sigI,
-		 rcoeffs, icoeffs,
-		 2*bw, spharmonic_pml_table,
-		 workspace, 0, bw ) ;
+ 		 rcoeffs, icoeffs,
+ 		 size, spharmonic_pml_table,
+ 		 workspace, 0, bw,
+ 		 &dctPlan, &fftPlan,
+ 		 weights ) ;
 
   /* now massage the coefficients */
   /* note that I'm using the workspace array again */
   rotateCoefAll_mem( bw, degOut,
-		 alpha, beta, gamma,
-		 rcoeffs, icoeffs,
-		 workspace ) ;
+ 		 alpha, beta, gamma,
+ 		 rcoeffs, icoeffs,
+ 		 workspace ) ;
 
   /* take inverse spherical transform */
   InvFST_semi_memo( rcoeffs, icoeffs,
-		    sigR, sigI,
-		    2*bw,
-		    transpose_spharmonic_pml_table,
-		    workspace, 0, bw ) ;
+ 		    sigR, sigI,
+ 		    size,
+ 		    transpose_spharmonic_pml_table,
+ 		    workspace, 0, bw,
+ 		    &idctPlan, &ifftPlan ) ;
 
   /* and that should be that ... */
 
+  /* cleanup */
+  fftw_destroy_plan( fftPlan );
+  fftw_destroy_plan( ifftPlan );
+  fftw_destroy_plan( dctPlan );
+  fftw_destroy_plan( idctPlan );
+  free( weights );
 }
 
 

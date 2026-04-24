@@ -8,7 +8,7 @@ Quick test setup for validating the cuFFT GPU backend implementation on borrowed
 
 ```bash
 cd docker_test
-docker-compose up --build
+docker compose up --build
 ```
 
 ### Option 2: Manual Docker

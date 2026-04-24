@@ -37,7 +37,7 @@ extern "C"
 {
 #endif
 
-
+#include <fftw3.h>
 
 extern void FST_semi_memo( double *, double *,
 			   double *, double *,
@@ -45,18 +45,19 @@ extern void FST_semi_memo( double *, double *,
 			   double *,
 			   int ,
 			   int ,
-			   void *,  // fftw_plan* or cufftHandle*
+			   fftw_plan *,
+			   fftw_plan *,
 			   double * );
 
-extern void InvFST_semi_memo(double *, double *, 
+extern void InvFST_semi_memo(double *, double *,
 			     double *, double *,
-			     int , 
+			     int ,
 			     double **,
 			     double *,
 			     int ,
 			     int ,
-			     void *,  // fftw_plan* or cufftHandle*
-			     double * );
+			     fftw_plan *,
+			     fftw_plan * );
 
 
 #ifdef __cplusplus

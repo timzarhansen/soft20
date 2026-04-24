@@ -1,9 +1,5 @@
-# SO(3) cuFFT Backend Test Container
-# Uses NVIDIA CUDA 13.1 base image for compatibility with borrowed GPU hardware
-
 FROM nvidia/cuda:13.1.0-devel-ubuntu22.04
 
-# Install minimal build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     build-essential \
@@ -14,24 +10,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /workspace
 
-# Copy standalone CMakeLists.txt
 COPY docker_test/CMakeLists.txt /workspace/
-
-# Copy soft20 source, include, and examples directories
 COPY src /workspace/soft20/src
 COPY include /workspace/soft20/include
 COPY examples /workspace/soft20/examples
 
-# Build with standalone CMakeLists.txt (builds both FFTW and cuFFT backends)
 RUN mkdir -p build && cd build && \
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CUDA_ARCHITECTURES="80" \
-    && make -j$(nproc) test_cufft_compare \
-    && strip build/test_cufft_compare
+    && make -j$(nproc) test_fftw test_cufft \
+    && strip build/test_fftw \
+    && strip build/test_cufft
 
-# Set entrypoint to run the comparison test
-ENTRYPOINT ["/workspace/build/test_cufft_compare"]
+RUN echo "=== FFTW Backend Test ===" && \
+    /workspace/build/test_fftw && \
+    echo "" && \
+    echo "=== cuFFT Backend Test ===" && \
+    /workspace/build/test_cufft
 
-# Default command (can be overridden)
+ENTRYPOINT ["/workspace/build/test_cufft"]
+
 CMD []

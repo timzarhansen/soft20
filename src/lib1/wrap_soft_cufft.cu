@@ -7,6 +7,7 @@
 
 #include <cuda.h>
 #include <cufft.h>
+#include <fftw3.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
