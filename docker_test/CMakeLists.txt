@@ -14,7 +14,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/soft20/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/soft20/src/lib1)
 include_directories(${FFTW3_INCLUDE_DIRS})
 
-set(LIB1_C_SOURCES
+set(LIB1_FULL_C_SOURCES
     soft20/src/lib1/rotate_so3_fftw.c
     soft20/src/lib1/rotate_so3_utils.c
     soft20/src/lib1/s2_cospmls.c
@@ -47,17 +47,42 @@ set(COMMON_C_SOURCES
     soft20/src/common/wignerTransforms.c
 )
 
-# FFTW CPU backend library (full library with all sources)
+# Shared sources needed by BOTH libraries (Wigner, vec, Legendre transforms)
+set(SHARED_C_SOURCES
+    soft20/src/lib1/s2_cospmls.c
+    soft20/src/lib1/s2_legendreTransforms.c
+    soft20/src/lib1/s2_semi_memo.c
+    soft20/src/lib1/utils_vec_cx.c
+    soft20/src/lib1/wignerTransforms_fftw.c
+)
+
+# FFTW-only sources
+set(FFTW_C_SOURCES
+    soft20/src/lib1/rotate_so3_fftw.c
+    soft20/src/lib1/rotate_so3_utils.c
+    soft20/src/lib1/s2_semi_fly.c
+    soft20/src/lib1/so3_correlate_fftw.c
+    soft20/src/lib1/soft_fftw.c
+    soft20/src/lib1/soft_fftw_nt.c
+    soft20/src/lib1/soft_fftw_pc.c
+    soft20/src/lib1/wrap_s2_rotate_fftw.c
+    soft20/src/lib1/wrap_soft_fftw.c
+    soft20/src/lib1/wrap_soft_fftw_cor2.c
+)
+
+# FFTW CPU backend library
 add_library(soft20_fftw STATIC
-    ${LIB1_C_SOURCES}
+    ${FFTW_C_SOURCES}
+    ${SHARED_C_SOURCES}
     ${COMMON_C_SOURCES}
 )
 
 target_link_libraries(soft20_fftw PRIVATE ${FFTW3_LIBRARIES} m)
 
-# cuFFT GPU backend library (CUDA sources + common C sources for shared utilities)
+# cuFFT GPU backend library (CUDA sources + shared C sources + common C sources)
 add_library(soft20_cufft STATIC
     ${LIB1_CUDA_SOURCES}
+    ${SHARED_C_SOURCES}
     ${COMMON_C_SOURCES}
 )
 

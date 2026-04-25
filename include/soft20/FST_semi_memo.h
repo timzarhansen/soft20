@@ -37,7 +37,9 @@ extern "C"
 {
 #endif
 
+#ifndef USE_CUFFT
 #include <fftw3.h>
+#endif
 
 extern void FST_semi_memo( double *, double *,
 			   double *, double *,

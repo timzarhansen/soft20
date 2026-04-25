@@ -20,8 +20,7 @@ RUN mkdir -p build && cd build && \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CUDA_ARCHITECTURES="80" \
     && make -j$(nproc) test_fftw test_cufft \
-    && strip build/test_fftw \
-    && strip build/test_cufft
+    && strip build/test_fftw
 
 RUN echo "=== FFTW Backend Test ===" && \
     /workspace/build/test_fftw && \
