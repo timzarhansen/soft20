@@ -1234,8 +1234,8 @@ void rotateFct_mem( int bw, int degOut,
   double *rcoeffs, *icoeffs, *workspace ;
   double *weights;
   int size, i;
-  int na[2], inembed[2], onembed[2];
-  int rank, howmany, istride, idist, ostride, odist;
+  int rank, howmany_rank;
+  fftw_iodim dims[1], howmany_dims[1];
   fftw_plan dctPlan, fftPlan, idctPlan, ifftPlan;
 
   size = 2 * bw;
@@ -1244,28 +1244,34 @@ void rotateFct_mem( int bw, int degOut,
   icoeffs = rcoeffs + (bw*bw) ;
   workspace = icoeffs + (bw*bw) ;
 
-  /* Create FFTW plan for phi-direction FFTs (size x size grid) */
-  rank = 2;
-  howmany = 1;
-  inembed[0] = size;
-  inembed[1] = size;
-  onembed[0] = size;
-  onembed[1] = size;
-  istride = 1;
-  ostride = 1;
-  idist = size;
-  odist = size;
-  na[0] = size;
-  na[1] = 1;
+  /* Forward FFT plan: size transforms of size elements, output transposed */
+  rank = 1;
+  dims[0].n = size;
+  dims[0].is = 1;
+  dims[0].os = size;
+  howmany_rank = 1;
+  howmany_dims[0].n = size;
+  howmany_dims[0].is = size;
+  howmany_dims[0].os = 1;
 
-  fftPlan = fftw_plan_guru_split_dft( rank, na,
-              inembed, istride, idist,
-              onembed, ostride, odist,
+  fftPlan = fftw_plan_guru_split_dft( rank, dims,
+              howmany_rank, howmany_dims,
+              sigR, sigI,
+              workspace, workspace + (size * size),
               FFTW_BACKWARD, FFTW_ESTIMATE );
 
-  ifftPlan = fftw_plan_guru_split_dft( rank, na,
-               inembed, istride, idist,
-               onembed, ostride, odist,
+  /* Inverse FFT plan: input transposed, output consecutive */
+  dims[0].n = size;
+  dims[0].is = size;
+  dims[0].os = 1;
+  howmany_dims[0].n = size;
+  howmany_dims[0].is = 1;
+  howmany_dims[0].os = size;
+
+  ifftPlan = fftw_plan_guru_split_dft( rank, dims,
+               howmany_rank, howmany_dims,
+               workspace, workspace + (size * size),
+               sigR, sigI,
                FFTW_FORWARD, FFTW_ESTIMATE );
 
   /* Create DCT plan for SemiNaiveReduced */
