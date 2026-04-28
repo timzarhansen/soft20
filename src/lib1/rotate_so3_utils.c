@@ -1254,11 +1254,31 @@ void rotateFct_mem( int bw, int degOut,
   howmany_dims[0].is = size;
   howmany_dims[0].os = 1;
 
-  fftPlan = fftw_plan_guru_split_dft( rank, dims,
-              howmany_rank, howmany_dims,
-              sigR, sigI,
-              workspace, workspace + (size * size),
-              FFTW_BACKWARD, FFTW_ESTIMATE );
+   fftPlan = fftw_plan_guru_split_dft( rank, dims,
+               howmany_rank, howmany_dims,
+               sigR, sigI,
+               workspace, workspace + (size * size),
+               FFTW_ESTIMATE );
+   fftPlan = fftw_plan_guru_split_dft( rank, dims,
+               howmany_rank, howmany_dims,
+               sigR, sigI,
+               workspace, workspace + (size * size),
+               FFTW_ESTIMATE );
+   fftPlan = fftw_plan_guru_split_dft( rank, dims,
+               howmany_rank, howmany_dims,
+               sigR, sigI,
+               workspace, workspace + (size * size),
+               FFTW_ESTIMATE );
+   fftPlan = fftw_plan_guru_split_dft( rank, dims,
+               howmany_rank, howmany_dims,
+               sigR, sigI,
+               workspace, workspace + (size * size),
+               FFTW_ESTIMATE );
+   fftPlan = fftw_plan_guru_split_dft( rank, dims,
+               howmany_rank, howmany_dims,
+               sigR, sigI,
+               workspace, workspace + (size * size),
+               FFTW_ESTIMATE );
 
   /* Inverse FFT plan: input transposed, output consecutive */
   dims[0].n = size;
