@@ -147,7 +147,7 @@ void Forward_SO3_Naive_fftw(int bw,
     CosEvalPts2(n, cosPts2);
     
     // Stage 1: FFT the "rows" (INVERSE FFT for forward transform)
-    CUFFT_CHECK(cufftExecZ2Z(plan, d_workspace_cx2, d_workspace_cx, CUFFT_INVERSE));
+    CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx2, (cufftDoubleComplex*)d_workspace_cx, CUFFT_INVERSE));
     
     // Stage 2: transpose (use existing CPU function, then copy to device)
     transpose_cx(workspace_cx, workspace_cx2, n*n, n);
@@ -155,7 +155,7 @@ void Forward_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMemcpy(d_workspace_cx2, workspace_cx2, data_size, cudaMemcpyHostToDevice));
     
     // Stage 3: FFT again
-    CUFFT_CHECK(cufftExecZ2Z(plan, d_workspace_cx2, d_workspace_cx, CUFFT_INVERSE));
+    CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx2, (cufftDoubleComplex*)d_workspace_cx, CUFFT_INVERSE));
     
     // Stage 4: transpose again
     transpose_cx(workspace_cx, workspace_cx2, n*n, n);
@@ -392,197 +392,7 @@ void Forward_SO3_Naive_fftw(int bw,
         coeffsPtr[j][0] *= dn;
         coeffsPtr[j][1] *= dn;
     }
-        }
-        
-        // {f_{-m1,m1}}
-        sampHere = sampLoc_so3(-m1, m1, bw);
-        coefHere = coefLoc_so3(-m1, m1, bw);
-        dataPtr = workspace_cx2 + sampHere;
-        coeffsPtr = coeffs + coefHere;
-        wigNaiveAnalysis_fftwY(-m1, m1, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-        
-        // {f_{m1,-m1}}
-        if (flag == 0) {
-            sampHere = sampLoc_so3(m1, -m1, bw);
-            coefHere = coefLoc_so3(m1, -m1, bw);
-            dataPtr = workspace_cx2 + sampHere;
-            coeffsPtr = coeffs + coefHere;
-            wigNaiveAnalysis_fftwY(m1, -m1, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-        } else {
-            coefHere = coefLoc_so3(-m1, m1, bw);
-            coefHere2 = coefLoc_so3(m1, -m1, bw);
-            for (j = 0; j < bw - m1; j++) {
-                coeffs[coefHere2+j][0] = coeffs[coefHere+j][0];
-                coeffs[coefHere2+j][1] = -coeffs[coefHere+j][1];
-            }
-        }
-    }
-    
-    // m1 from 1 to bw-1: {f_{m1,0}}, {f_{-m1,0}}, {f_{0,m1}}, {f_{0,-m1}}
-    for (m1 = 1; m1 < bw; m1++) {
-        genWig_L2(m1, 0, bw, sinPts, cosPts, sinPts2, cosPts2, wigners, scratch);
-        
-        // {f_{m1,0}}
-        sampHere = sampLoc_so3(m1, 0, bw);
-        coefHere = coefLoc_so3(m1, 0, bw);
-        dataPtr = workspace_cx2 + sampHere;
-        coeffsPtr = coeffs + coefHere;
-        wigNaiveAnalysis_fftw(m1, 0, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-        
-        // {f_{-m1,0}}
-        if (flag == 0) {
-            sampHere = sampLoc_so3(-m1, 0, bw);
-            coefHere = coefLoc_so3(-m1, 0, bw);
-            dataPtr = workspace_cx2 + sampHere;
-            coeffsPtr = coeffs + coefHere;
-            wigNaiveAnalysis_fftwX(-m1, 0, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-        } else {
-            coefHere = coefLoc_so3(m1, 0, bw);
-            coefHere2 = coefLoc_so3(-m1, 0, bw);
-            fudge = ((m1 % 2) == 0) ? 1.0 : -1.0;
-            for (j = 0; j < bw - m1; j++) {
-                coeffs[coefHere2+j][0] = fudge * coeffs[coefHere+j][0];
-                coeffs[coefHere2+j][1] = -fudge * coeffs[coefHere+j][1];
-            }
-        }
-        
-        // {f_{0,m1}}
-        sampHere = sampLoc_so3(0, m1, bw);
-        coefHere = coefLoc_so3(0, m1, bw);
-        dataPtr = workspace_cx2 + sampHere;
-        coeffsPtr = coeffs + coefHere;
-        wigNaiveAnalysis_fftwX(0, m1, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-        
-        // {f_{0,-m1}}
-        if (flag == 0) {
-            sampHere = sampLoc_so3(0, -m1, bw);
-            coefHere = coefLoc_so3(0, -m1, bw);
-            dataPtr = workspace_cx2 + sampHere;
-            coeffsPtr = coeffs + coefHere;
-            wigNaiveAnalysis_fftw(0, -m1, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-        } else {
-            coefHere = coefLoc_so3(0, m1, bw);
-            coefHere2 = coefLoc_so3(0, -m1, bw);
-            fudge = ((m1 % 2) == 0) ? 1.0 : -1.0;
-            for (j = 0; j < bw - m1; j++) {
-                coeffs[coefHere2+j][0] = fudge * coeffs[coefHere+j][0];
-                coeffs[coefHere2+j][1] = -fudge * coeffs[coefHere+j][1];
-            }
-        }
-    }
-    
-    // m1 from 1 to bw-1, m2 from m1+1 to bw-1: 8 combinations
-    for (m1 = 1; m1 < bw; m1++) {
-        for (m2 = m1 + 1; m2 < bw; m2++) {
-            genWig_L2(m1, m2, bw, sinPts, cosPts, sinPts2, cosPts2, wigners, scratch);
-            
-            // {f_{m1,m2}}
-            sampHere = sampLoc_so3(m1, m2, bw);
-            coefHere = coefLoc_so3(m1, m2, bw);
-            dataPtr = workspace_cx2 + sampHere;
-            coeffsPtr = coeffs + coefHere;
-            wigNaiveAnalysis_fftw(m1, m2, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            
-            // {f_{-m1,-m2}}
-            if (flag == 0) {
-                sampHere = sampLoc_so3(-m1, -m2, bw);
-                coefHere = coefLoc_so3(-m1, -m2, bw);
-                dataPtr = workspace_cx2 + sampHere;
-                coeffsPtr = coeffs + coefHere;
-                wigNaiveAnalysis_fftwX(-m1, -m2, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            } else {
-                coefHere = coefLoc_so3(m1, m2, bw);
-                coefHere2 = coefLoc_so3(-m1, -m2, bw);
-                fudge = (((m2-m1) % 2) == 0) ? 1.0 : -1.0;
-                for (j = 0; j < bw - m2; j++) {
-                    coeffs[coefHere2+j][0] = fudge * coeffs[coefHere+j][0];
-                    coeffs[coefHere2+j][1] = -fudge * coeffs[coefHere+j][1];
-                }
-            }
-            
-            // {f_{m1,-m2}}
-            sampHere = sampLoc_so3(m1, -m2, bw);
-            coefHere = coefLoc_so3(m1, -m2, bw);
-            dataPtr = workspace_cx2 + sampHere;
-            coeffsPtr = coeffs + coefHere;
-            wigNaiveAnalysis_fftwY(m1, -m2, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            
-            // {f_{-m1,m2}}
-            if (flag == 0) {
-                sampHere = sampLoc_so3(-m1, m2, bw);
-                coefHere = coefLoc_so3(-m1, m2, bw);
-                dataPtr = workspace_cx2 + sampHere;
-                coeffsPtr = coeffs + coefHere;
-                wigNaiveAnalysis_fftwY(-m1, m2, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            } else {
-                coefHere = coefLoc_so3(m1, -m2, bw);
-                coefHere2 = coefLoc_so3(-m1, m2, bw);
-                fudge = (((m2-m1) % 2) == 0) ? 1.0 : -1.0;
-                for (j = 0; j < bw - m2; j++) {
-                    coeffs[coefHere2+j][0] = fudge * coeffs[coefHere+j][0];
-                    coeffs[coefHere2+j][1] = -fudge * coeffs[coefHere+j][1];
-                }
-            }
-            
-            // {f_{m2,m1}}
-            sampHere = sampLoc_so3(m2, m1, bw);
-            coefHere = coefLoc_so3(m2, m1, bw);
-            dataPtr = workspace_cx2 + sampHere;
-            coeffsPtr = coeffs + coefHere;
-            wigNaiveAnalysis_fftwX(m2, m1, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            
-            // {f_{-m2,-m1}}
-            if (flag == 0) {
-                sampHere = sampLoc_so3(-m2, -m1, bw);
-                coefHere = coefLoc_so3(-m2, -m1, bw);
-                dataPtr = workspace_cx2 + sampHere;
-                coeffsPtr = coeffs + coefHere;
-                wigNaiveAnalysis_fftw(-m2, -m1, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            } else {
-                coefHere = coefLoc_so3(m2, m1, bw);
-                coefHere2 = coefLoc_so3(-m2, -m1, bw);
-                fudge = (((m2-m1) % 2) == 0) ? 1.0 : -1.0;
-                for (j = 0; j < bw - m2; j++) {
-                    coeffs[coefHere2+j][0] = fudge * coeffs[coefHere+j][0];
-                    coeffs[coefHere2+j][1] = -fudge * coeffs[coefHere+j][1];
-                }
-            }
-            
-            // {f_{m2,-m1}}
-            sampHere = sampLoc_so3(m2, -m1, bw);
-            coefHere = coefLoc_so3(m2, -m1, bw);
-            dataPtr = workspace_cx2 + sampHere;
-            coeffsPtr = coeffs + coefHere;
-            wigNaiveAnalysis_fftwY(m1, -m2, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            
-            // {f_{-m2,m1}}
-            if (flag == 0) {
-                sampHere = sampLoc_so3(-m2, m1, bw);
-                coefHere = coefLoc_so3(-m2, m1, bw);
-                dataPtr = workspace_cx2 + sampHere;
-                coeffsPtr = coeffs + coefHere;
-                wigNaiveAnalysis_fftwY(-m1, m2, bw, dataPtr, wigners, weights, coeffsPtr, workspace_cx);
-            } else {
-                coefHere = coefLoc_so3(m2, -m1, bw);
-                coefHere2 = coefLoc_so3(-m2, m1, bw);
-                fudge = (((m2-m1) % 2) == 0) ? 1.0 : -1.0;
-                for (j = 0; j < bw - m2; j++) {
-                    coeffs[coefHere2+j][0] = fudge * coeffs[coefHere+j][0];
-                    coeffs[coefHere2+j][1] = -fudge * coeffs[coefHere+j][1];
-                }
-            }
-        }
-    }
-    
-    // Normalize coefficients
-    double dn = (M_PI / ((double)(bw * n)));
-    int tmpInt = totalCoeffs_so3(bw);
-    coeffsPtr = coeffs;
-    for (j = 0; j < tmpInt; j++) {
-        coeffsPtr[j][0] *= dn;
-        coeffsPtr[j][1] *= dn;
-    }
-    
+
     // Cleanup
     CUDA_CHECK(cudaFree(d_data));
     CUDA_CHECK(cudaFree(d_workspace_cx));
@@ -896,7 +706,7 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMemcpy(d_workspace_cx, workspace_cx, data_size, cudaMemcpyHostToDevice));
     
     // Stage 2: FFT
-    CUFFT_CHECK(cufftExecZ2Z(plan, d_workspace_cx, d_workspace_cx2, CUFFT_FORWARD));
+    CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx, (cufftDoubleComplex*)d_workspace_cx2, CUFFT_FORWARD));
     
     // Stage 3: transpose
     CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
@@ -905,7 +715,7 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMemcpy(d_workspace_cx2, workspace_cx2, data_size, cudaMemcpyHostToDevice));
     
     // Stage 4: FFT again
-    CUFFT_CHECK(cufftExecZ2Z(plan, d_workspace_cx, d_workspace_cx2, CUFFT_FORWARD));
+    CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx, (cufftDoubleComplex*)d_workspace_cx2, CUFFT_FORWARD));
     
     // Stage 5: Final transpose and copy to output
     CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
