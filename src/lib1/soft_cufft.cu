@@ -84,6 +84,10 @@ typedef struct {
  * p1: unused for cuFFT backend (kept for API compatibility)
  * flag: 0 = complex data, 1 = real data
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void Forward_SO3_Naive_fftw(int bw,
                             fftw_complex *data,
                             fftw_complex *coeffs,
@@ -729,3 +733,7 @@ void Inverse_SO3_Naive_fftw(int bw,
     
     CUDA_CHECK(cudaDeviceSynchronize());
 }
+
+#ifdef __cplusplus
+}
+#endif
