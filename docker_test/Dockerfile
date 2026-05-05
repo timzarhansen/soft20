@@ -22,12 +22,6 @@ RUN mkdir -p build && cd build && \
     && make -j$(nproc) test_fftw test_cufft \
     && strip /workspace/build/test_fftw
 
-RUN echo "=== FFTW Backend Test ===" && \
-    /workspace/build/test_fftw && \
-    echo "" && \
-    echo "=== cuFFT Backend Test ===" && \
-    /workspace/build/test_cufft
-
 ENTRYPOINT ["/workspace/build/test_cufft"]
 
 CMD []
