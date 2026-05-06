@@ -35,6 +35,10 @@
         } \
     } while(0)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Forward SO(3) transform with automatic workspace management
  * 
@@ -101,3 +105,7 @@ void Inverse_SO3_Naive_fftw_W(int bw,
     free(workspace_cx2);
     free(workspace_re);
 }
+
+#ifdef __cplusplus
+}
+#endif
