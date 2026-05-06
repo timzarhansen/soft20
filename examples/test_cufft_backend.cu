@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "soft_fftw.h"
+#include "wrap_fftw.h"
 #include "utils_so3.h"
 #include "makeweights.h"
 
@@ -41,7 +42,7 @@
 #define BW 8  // Bandwidth (keep small for testing)
 #define N (2 * BW)  // Grid size
 #define N3 (N * N * N)  // Total samples
-#define NUM_COEFFS ((4 * BW * BW * BW - BW) / 3)  // Number of coefficients
+#define NUM_COEFFS totalCoeffs_so3(BW)  // Number of coefficients
 
 /**
  * Generate a synthetic SO(3) signal with known coefficients
@@ -112,21 +113,18 @@ int test_so3_transform()
     fftw_complex *signal = (fftw_complex*)malloc(sizeof(fftw_complex) * N3);
     fftw_complex *coeffs = (fftw_complex*)malloc(sizeof(fftw_complex) * NUM_COEFFS);
     fftw_complex *reconstructed = (fftw_complex*)malloc(sizeof(fftw_complex) * N3);
-    fftw_complex *workspace_cx = (fftw_complex*)malloc(sizeof(fftw_complex) * N3);
-    fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * N3);
-    double *workspace_re = (double*)malloc(sizeof(double) * (12 * N + N * BW));
-    double *weights = (double*)malloc(sizeof(double) * (2 * BW));
     
-    // Generate weights
-    makeweights(BW, weights);
+    if (!signal || !coeffs || !reconstructed) {
+        fprintf(stderr, "ERROR: Failed to allocate memory\n");
+        return 1;
+    }
     
     // Generate test signal
     generate_test_signal(signal, BW);
     
     // Time forward transform
     clock_t start = clock();
-    Forward_SO3_Naive_fftw(BW, signal, coeffs, workspace_cx, workspace_cx2,
-                           workspace_re, weights, NULL, 0);
+    Forward_SO3_Naive_fftw_W(BW, signal, coeffs, 0);
     clock_t forward_time = clock() - start;
     
     printf("  Forward transform time: %.3f ms\n", 
@@ -134,8 +132,7 @@ int test_so3_transform()
     
     // Time inverse transform
     start = clock();
-    Inverse_SO3_Naive_fftw(BW, coeffs, reconstructed, workspace_cx, workspace_cx2,
-                           workspace_re, NULL, 0);
+    Inverse_SO3_Naive_fftw_W(BW, coeffs, reconstructed, 0);
     clock_t inverse_time = clock() - start;
     
     printf("  Inverse transform time: %.3f ms\n",
@@ -157,10 +154,6 @@ int test_so3_transform()
         free(signal);
         free(coeffs);
         free(reconstructed);
-        free(workspace_cx);
-        free(workspace_cx2);
-        free(workspace_re);
-        free(weights);
         return 1;
     }
     
@@ -168,10 +161,6 @@ int test_so3_transform()
     free(signal);
     free(coeffs);
     free(reconstructed);
-    free(workspace_cx);
-    free(workspace_cx2);
-    free(workspace_re);
-    free(weights);
     
     return 0;
 }

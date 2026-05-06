@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "soft_fftw.h"
+#include "wrap_fftw.h"
 #include "utils_so3.h"
 #include "makeweights.h"
 
@@ -121,36 +122,28 @@ int run_backend_test(int bw, const char* test_name, const char* backend_name)
 {
     int n = 2 * bw;
     int n3 = n * n * n;
-    int num_coeffs = (4 * bw * bw * bw - bw) / 3;
+    int num_coeffs = totalCoeffs_so3(bw);
 
     printf("%s [%s backend]\n", test_name, backend_name);
     printf("  Bandwidth: %d (N=%d, %.1fM samples)\n", bw, n, n3 / 1000000.0);
     printf("  Coefficients: %d\n\n", num_coeffs);
 
-    // Allocate memory
     fftw_complex *signal = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
     fftw_complex *coeffs = (fftw_complex*)malloc(sizeof(fftw_complex) * num_coeffs);
     fftw_complex *reconstructed = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    fftw_complex *workspace_cx = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    double *workspace_re = (double*)malloc(sizeof(double) * (12 * n + n * bw));
-    double *weights = (double*)malloc(sizeof(double) * (2 * bw));
 
-    if (!signal || !coeffs || !reconstructed || !workspace_cx || !workspace_cx2 ||
-        !workspace_re || !weights) {
+    if (!signal || !coeffs || !reconstructed) {
         fprintf(stderr, "ERROR: Failed to allocate memory\n");
         return 1;
     }
 
-    makeweights(bw, weights);
     generate_test_signal(signal, bw);
 
     // ============ FORWARD TRANSFORM ============
     printf("Forward Transform:\n");
 
     clock_t start = clock();
-    Forward_SO3_Naive_fftw(bw, signal, coeffs, workspace_cx, workspace_cx2,
-                           workspace_re, weights, NULL, 0);
+    Forward_SO3_Naive_fftw_W(bw, signal, coeffs, 0);
     double forward_time = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
 
     printf("  %s: %.3f ms\n\n", backend_name, forward_time);
@@ -159,8 +152,7 @@ int run_backend_test(int bw, const char* test_name, const char* backend_name)
     printf("Inverse Transform:\n");
 
     start = clock();
-    Inverse_SO3_Naive_fftw(bw, coeffs, reconstructed, workspace_cx, workspace_cx2,
-                           workspace_re, NULL, 0);
+    Inverse_SO3_Naive_fftw_W(bw, coeffs, reconstructed, 0);
     double inverse_time = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
 
     printf("  %s: %.3f ms\n", backend_name, inverse_time);
@@ -179,10 +171,6 @@ int run_backend_test(int bw, const char* test_name, const char* backend_name)
     free(signal);
     free(coeffs);
     free(reconstructed);
-    free(workspace_cx);
-    free(workspace_cx2);
-    free(workspace_re);
-    free(weights);
 
     if (recon_l2_error < TOLERANCE_L2 && recon_max_error < TOLERANCE_MAX) {
         return 0;
