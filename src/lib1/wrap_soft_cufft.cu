@@ -58,8 +58,7 @@ void Forward_SO3_Naive_fftw_W(int bw,
     // Allocate workspaces
     fftw_complex *workspace_cx = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
     fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    double *workspace_re = (double*)malloc(sizeof(double) * (12 * n + n * bw));
-    double *weights = (double*)malloc(sizeof(double) * (2 * bw));
+   double *workspace_re = (double*)malloc(sizeof(double) * (24 * bw + 2 * bw * bw));
     
     // Generate quadrature weights
     makeweights(bw, weights);
@@ -94,7 +93,7 @@ void Inverse_SO3_Naive_fftw_W(int bw,
     // Allocate workspaces
     fftw_complex *workspace_cx = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
     fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    double *workspace_re = (double*)malloc(sizeof(double) * (12 * n + n * bw));
+    double *workspace_re = (double*)malloc(sizeof(double) * (24 * bw + 2 * bw * bw));
     
     // Call the transform
     Inverse_SO3_Naive_fftw(bw, coeffs, signal, workspace_cx, workspace_cx2,
