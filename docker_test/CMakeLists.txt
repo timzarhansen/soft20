@@ -121,3 +121,14 @@ target_compile_definitions(test_cufft PRIVATE TEST_BACKEND_CUFFT)
 set_target_properties(test_cufft PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
 )
+
+# Original low-level Inverse->Forward test (known working path)
+add_executable(test_soft_fftw_orig
+    soft20/examples1/test_soft_fftw.c
+)
+
+target_link_libraries(test_soft_fftw_orig
+    soft20_fftw
+    ${FFTW3_LIBRARIES}
+    m
+)

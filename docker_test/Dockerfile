@@ -14,12 +14,13 @@ COPY docker_test/CMakeLists.txt /workspace/
 COPY src /workspace/soft20/src
 COPY include /workspace/soft20/include
 COPY examples /workspace/soft20/examples
+COPY examples1 /workspace/soft20/examples1
 
 RUN mkdir -p build && cd build && \
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CUDA_ARCHITECTURES="80" \
-    && make -j$(nproc) test_fftw test_cufft \
+    && make -j$(nproc) test_fftw test_cufft test_soft_fftw_orig \
     && strip /workspace/build/test_fftw
 
 ENTRYPOINT ["/workspace/build/test_cufft"]
