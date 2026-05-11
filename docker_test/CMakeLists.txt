@@ -116,6 +116,8 @@ target_link_libraries(test_cufft
     m
 )
 
+target_compile_definitions(test_cufft PRIVATE TEST_BACKEND_CUFFT)
+
 set_target_properties(test_cufft PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
 )

@@ -17,6 +17,12 @@
 #define TOLERANCE_L2 1e-5
 #define TOLERANCE_MAX 1e-4
 
+#ifdef TEST_BACKEND_CUFFT
+    #define BACKEND_NAME "cufft"
+#else
+    #define BACKEND_NAME "fftw"
+#endif
+
 #define CUDA_CHECK(call) \
     do { \
         cudaError_t err = call; \
@@ -37,8 +43,10 @@
     } while(0)
 
 int test_gpu_device();
-int run_backend_test(int bw, const char* test_name, const char* backend_name);
+int run_forward_inverse_test(int bw, const char* test_name);
+int run_inverse_forward_test(int bw, const char* test_name);
 void generate_test_signal(fftw_complex *signal, int bw);
+void generate_test_coeffs(fftw_complex *coeffs, int bw);
 double compute_l2_error(fftw_complex *a, fftw_complex *b, int size);
 double compute_max_error(fftw_complex *a, fftw_complex *b, int size);
 
@@ -85,6 +93,19 @@ void generate_test_signal(fftw_complex *signal, int bw)
     }
 }
 
+void generate_test_coeffs(fftw_complex *coeffs, int bw)
+{
+    time_t seed;
+    time(&seed);
+    srand48(seed);
+
+    int num_coeffs = totalCoeffs_so3(bw);
+    for (int i = 0; i < num_coeffs; i++) {
+        coeffs[i][0] = 2.0 * (drand48() - 0.5);
+        coeffs[i][1] = 2.0 * (drand48() - 0.5);
+    }
+}
+
 double compute_l2_error(fftw_complex *a, fftw_complex *b, int size)
 {
     double error = 0.0;
@@ -118,13 +139,13 @@ double compute_max_error(fftw_complex *a, fftw_complex *b, int size)
     return max_error;
 }
 
-int run_backend_test(int bw, const char* test_name, const char* backend_name)
+int run_forward_inverse_test(int bw, const char* test_name)
 {
     int n = 2 * bw;
     int n3 = n * n * n;
     int num_coeffs = totalCoeffs_so3(bw);
 
-    printf("%s [%s backend]\n", test_name, backend_name);
+    printf("%s [Forward->Inverse, %s backend]\n", test_name, BACKEND_NAME);
     printf("  Bandwidth: %d (N=%d, %.1fM samples)\n", bw, n, n3 / 1000000.0);
     printf("  Coefficients: %d\n\n", num_coeffs);
 
@@ -139,25 +160,18 @@ int run_backend_test(int bw, const char* test_name, const char* backend_name)
 
     generate_test_signal(signal, bw);
 
-    // ============ FORWARD TRANSFORM ============
     printf("Forward Transform:\n");
-
     clock_t start = clock();
     Forward_SO3_Naive_fftw_W(bw, signal, coeffs, 0);
     double forward_time = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
+    printf("  %s: %.3f ms\n\n", BACKEND_NAME, forward_time);
 
-    printf("  %s: %.3f ms\n\n", backend_name, forward_time);
-
-    // ============ INVERSE TRANSFORM ============
     printf("Inverse Transform:\n");
-
     start = clock();
     Inverse_SO3_Naive_fftw_W(bw, coeffs, reconstructed, 0);
     double inverse_time = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
+    printf("  %s: %.3f ms\n", BACKEND_NAME, inverse_time);
 
-    printf("  %s: %.3f ms\n", backend_name, inverse_time);
-
-    // ============ RECONSTRUCTION ERROR ============
     double recon_l2_error = compute_l2_error(signal, reconstructed, n3);
     double recon_max_error = compute_max_error(signal, reconstructed, n3);
 
@@ -167,10 +181,64 @@ int run_backend_test(int bw, const char* test_name, const char* backend_name)
            recon_max_error < TOLERANCE_MAX ? "PASS" : "FAIL");
     printf("\n");
 
-    // Cleanup
     free(signal);
     free(coeffs);
     free(reconstructed);
+
+    if (recon_l2_error < TOLERANCE_L2 && recon_max_error < TOLERANCE_MAX) {
+        return 0;
+    } else {
+        fprintf(stderr, "ERROR: Reconstruction errors exceed tolerance!\n");
+        fprintf(stderr, "  Tolerance: L2 < %.2e, Max < %.2e\n", TOLERANCE_L2, TOLERANCE_MAX);
+        return 1;
+    }
+}
+
+int run_inverse_forward_test(int bw, const char* test_name)
+{
+    int n = 2 * bw;
+    int n3 = n * n * n;
+    int num_coeffs = totalCoeffs_so3(bw);
+
+    printf("%s [Inverse->Forward, %s backend]\n", test_name, BACKEND_NAME);
+    printf("  Bandwidth: %d (N=%d, %.1fM samples)\n", bw, n, n3 / 1000000.0);
+    printf("  Coefficients: %d\n\n", num_coeffs);
+
+    fftw_complex *coeffsIn = (fftw_complex*)malloc(sizeof(fftw_complex) * num_coeffs);
+    fftw_complex *signal = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
+    fftw_complex *coeffsOut = (fftw_complex*)malloc(sizeof(fftw_complex) * num_coeffs);
+
+    if (!coeffsIn || !signal || !coeffsOut) {
+        fprintf(stderr, "ERROR: Failed to allocate memory\n");
+        return 1;
+    }
+
+    generate_test_coeffs(coeffsIn, bw);
+
+    printf("Inverse Transform:\n");
+    clock_t start = clock();
+    Inverse_SO3_Naive_fftw_W(bw, coeffsIn, signal, 0);
+    double inverse_time = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
+    printf("  %s: %.3f ms\n\n", BACKEND_NAME, inverse_time);
+
+    printf("Forward Transform:\n");
+    start = clock();
+    Forward_SO3_Naive_fftw_W(bw, signal, coeffsOut, 0);
+    double forward_time = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
+    printf("  %s: %.3f ms\n", BACKEND_NAME, forward_time);
+
+    double recon_l2_error = compute_l2_error(coeffsIn, coeffsOut, num_coeffs);
+    double recon_max_error = compute_max_error(coeffsIn, coeffsOut, num_coeffs);
+
+    printf("  Reconstruction L2 error: %.2e %s\n", recon_l2_error,
+           recon_l2_error < TOLERANCE_L2 ? "PASS" : "FAIL");
+    printf("  Reconstruction max error: %.2e %s\n", recon_max_error,
+           recon_max_error < TOLERANCE_MAX ? "PASS" : "FAIL");
+    printf("\n");
+
+    free(coeffsIn);
+    free(signal);
+    free(coeffsOut);
 
     if (recon_l2_error < TOLERANCE_L2 && recon_max_error < TOLERANCE_MAX) {
         return 0;
@@ -187,25 +255,36 @@ int main(int argc, char **argv)
     printf("SO(3) Transform - Backend Roundtrip Test\n");
     printf("===========================================\n\n");
 
-    // Test GPU availability
     if (test_gpu_device() != 0) {
         printf("OVERALL: FAIL (No GPU)\n");
         printf("===========================================\n");
         return 1;
     }
 
-    // Sanity test with small bandwidth
     printf("--- Sanity Check (bw=%d) ---\n\n", BW_SANITY);
-    if (run_backend_test(BW_SANITY, "Sanity Check", "backend") != 0) {
-        printf("OVERALL: FAIL (Sanity check failed)\n");
+
+    if (run_forward_inverse_test(BW_SANITY, "Sanity Check") != 0) {
+        printf("OVERALL: FAIL (Sanity check F->I failed)\n");
         printf("===========================================\n");
         return 1;
     }
 
-    // Full test with larger bandwidth
+    if (run_inverse_forward_test(BW_SANITY, "Sanity Check") != 0) {
+        printf("OVERALL: FAIL (Sanity check I->F failed)\n");
+        printf("===========================================\n");
+        return 1;
+    }
+
     printf("--- Full Test (bw=%d) ---\n\n", BW_FULL);
-    if (run_backend_test(BW_FULL, "Full Test", "backend") != 0) {
-        printf("OVERALL: FAIL\n");
+
+    if (run_forward_inverse_test(BW_FULL, "Full Test") != 0) {
+        printf("OVERALL: FAIL (Full test F->I failed)\n");
+        printf("===========================================\n");
+        return 1;
+    }
+
+    if (run_inverse_forward_test(BW_FULL, "Full Test") != 0) {
+        printf("OVERALL: FAIL (Full test I->F failed)\n");
         printf("===========================================\n");
         return 1;
     }
