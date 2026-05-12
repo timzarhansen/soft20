@@ -1822,8 +1822,10 @@ void Inverse_SO3_Naive_fftw( int bw,
     }
 
 
+ fprintf(stderr, "### FFTW_INV_WIG: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", data[0][0], data[0][1], data[1][0], data[1][1], data[2][0], data[2][1]);
+
   /* I need to set some zeros
-     so that I can take the fft correctly */
+      so that I can take the fft correctly */
 
   /* reset ptrs to correct starting positions */
   dataPtr = data + (n)*(bw) ;
@@ -1838,11 +1840,13 @@ void Inverse_SO3_Naive_fftw( int bw,
   memset( dataPtr, 0, sizeof(fftw_complex) * n * n );
   dataPtr += n * n + n*bw;
 
-  for ( m1 = 1 ; m1 < bw  ; m1 ++ )
+   for ( m1 = 1 ; m1 < bw  ; m1 ++ )
     {
       memset( dataPtr, 0, sizeof(fftw_complex) * n );
       dataPtr += (2*n)*(bw) ;
     }
+
+  fprintf(stderr, "### FFTW_INV_ZERO: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", data[0][0], data[0][1], data[1][0], data[1][1], data[2][0], data[2][1]);
 
   /*
     Stage 2: transpose! Note I'm using the rdata, idata arrays
@@ -1866,6 +1870,7 @@ void Inverse_SO3_Naive_fftw( int bw,
   */
 
   fftw_execute( *p1 ) ;
+  fprintf(stderr, "### FFTW_INV_FFT1: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", data[0][0], data[0][1], data[1][0], data[1][1], data[2][0], data[2][1]);
 
   /* normalize the Fourier coefficients (sorry, have to do it) */
   /* no! I can wait till the end */
@@ -1899,6 +1904,7 @@ void Inverse_SO3_Naive_fftw( int bw,
 
 
   fftw_execute( *p1 ) ;
+  fprintf(stderr, "### FFTW_INV_FFT2: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", data[0][0], data[0][1], data[1][0], data[1][1], data[2][0], data[2][1]);
 
   /* normalize the Fourier coefficients (sorry, have to do it) */
 
@@ -1909,6 +1915,7 @@ void Inverse_SO3_Naive_fftw( int bw,
       data[ j ][0] *= dn ;
       data[ j ][1] *= dn ;
     }
+  fprintf(stderr, "### FFTW_INV_DONE: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", data[0][0], data[0][1], data[1][0], data[1][1], data[2][0], data[2][1]);
 
   /* and that's all, folks */
 }
