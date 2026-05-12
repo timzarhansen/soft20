@@ -94,15 +94,16 @@ void Forward_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, data_size));
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, data_size));
 
-    /* cuFFT plan: n*n batches of 1D FFT of length n (uniform layout)
-       Matches FFTW plan: rank=2, na={1,n}, howmany=n*n, idist=n, odist=n */
+   /* cuFFT plan: n*n batches of 1D FFT of length n
+        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n, idist=n, odist=n
+        FFTW stride along FFT dim = inembed[1]*istride = n*n*1 = n*n */
     int rank = 1;
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                               NULL, 1, n,
-                               NULL, 1, n,
-                               CUFFT_Z2Z, howmany));
+                                NULL, n*n, n,
+                                NULL, n*n, n,
+                                CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
     cosPts = sinPts + n;
@@ -393,14 +394,16 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, data_size));
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, data_size));
 
-    /* cuFFT plan: n*n batches of 1D FFT of length n (uniform layout) */
+  /* cuFFT plan: n*n batches of 1D FFT of length n
+        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n, idist=n, odist=n
+        FFTW stride along FFT dim = inembed[1]*istride = n*n*1 = n*n */
     int rank = 1;
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                               NULL, 1, n,
-                               NULL, 1, n,
-                               CUFFT_Z2Z, howmany));
+                                NULL, n*n, n,
+                                NULL, n*n, n,
+                                CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
     cosPts = sinPts + n;
@@ -656,7 +659,7 @@ void Inverse_SO3_Naive_fftw(int bw,
        FFTW: two FORWARD transforms (no normalization), then data *= bw/(M_PI*n)
        cuFFT: two FORWARD transforms each divide by n, total 1/n^2
        Need to multiply by n^2 to compensate */
-    double dn = ((double)bw) / M_PI * (double)n * (double)n * (double)n;
+    double dn = ((double)bw) / M_PI * (double)n;
     for (j = 0; j < n3; j++) {
         data[j][0] *= dn;
         data[j][1] *= dn;
