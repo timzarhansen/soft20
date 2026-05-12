@@ -612,8 +612,6 @@ void Inverse_SO3_Naive_fftw(int bw,
         }
     }
 
-    fprintf(stderr, "### CUFFT_INV_WIG: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx[0][0], workspace_cx[0][1], workspace_cx[1][0], workspace_cx[1][1], workspace_cx[2][0], workspace_cx[2][1]);
-
     /* Zero out unused regions in workspace_cx */
     dataPtr = workspace_cx + (n)*(bw);
     for (m1 = 0; m1 < bw; m1++) {
@@ -628,8 +626,6 @@ void Inverse_SO3_Naive_fftw(int bw,
         dataPtr += (2*n)*(bw);
     }
 
-    fprintf(stderr, "### CUFFT_INV_ZERO: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx[0][0], workspace_cx[0][1], workspace_cx[1][0], workspace_cx[1][1], workspace_cx[2][0], workspace_cx[2][1]);
-
     /* Stage 2: transpose workspace_cx -> workspace_cx2 */
     transpose_cx(workspace_cx, workspace_cx2, n, n*n);
 
@@ -642,8 +638,6 @@ void Inverse_SO3_Naive_fftw(int bw,
 
     /* D2H before transpose */
     CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
-    fprintf(stderr, "### CUFFT_INV_FFT1: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx2[0][0], workspace_cx2[0][1], workspace_cx2[1][0], workspace_cx2[1][1], workspace_cx2[2][0], workspace_cx2[2][1]);
-
     /* Stage 4: transpose workspace_cx2 -> workspace_cx */
     transpose_cx(workspace_cx2, workspace_cx, n*n, n);
 
@@ -656,20 +650,17 @@ void Inverse_SO3_Naive_fftw(int bw,
 
     /* D2H and final transpose to output */
     CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
-    fprintf(stderr, "### CUFFT_INV_FFT2: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx2[0][0], workspace_cx2[0][1], workspace_cx2[1][0], workspace_cx2[1][1], workspace_cx2[2][0], workspace_cx2[2][1]);
     transpose_cx(workspace_cx2, data, n*n, n);
 
     /* Normalize output
        FFTW: two FORWARD transforms (no normalization), then data *= bw/(M_PI*n)
        cuFFT: two FORWARD transforms each divide by n, total 1/n^2
        Need to multiply by n^2 to compensate */
-    double dn = ((double)bw) / M_PI * (double)n;
+    double dn = ((double)bw) / M_PI * (double)n * (double)n * (double)n;
     for (j = 0; j < n3; j++) {
         data[j][0] *= dn;
         data[j][1] *= dn;
     }
-    fprintf(stderr, "### CUFFT_INV_DONE: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", data[0][0], data[0][1], data[1][0], data[1][1], data[2][0], data[2][1]);
-
     CUDA_CHECK(cudaFree(d_workspace_cx));
     CUDA_CHECK(cudaFree(d_workspace_cx2));
     CUFFT_CHECK(cufftDestroy(plan));
