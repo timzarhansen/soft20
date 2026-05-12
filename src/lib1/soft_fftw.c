@@ -136,12 +136,13 @@ void Forward_SO3_Naive_fftw( int bw,
   SinEvalPts2( n, sinPts2 );
   CosEvalPts2( n, cosPts2 );
 
-  /*
-    I also need to copy the contents of data to workspace_cx2,
-    given that's where the fftw plan expects data to be. I wish
-    I didn't have to waste so much memory
-  */
-  memcpy( workspace_cx2, data, sizeof(fftw_complex) * n3 );
+/*
+     I also need to copy the contents of data to workspace_cx2,
+     given that's where the fftw plan expects data to be. I wish
+     I didn't have to waste so much memory
+   */
+   memcpy( workspace_cx2, data, sizeof(fftw_complex) * n3 );
+   fprintf(stderr, "### FFTW_FWD_COPY: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx2[0][0], workspace_cx2[0][1], workspace_cx2[1][0], workspace_cx2[1][1], workspace_cx2[2][0], workspace_cx2[2][1]);
 
   /*
     Stage 1: FFT the "rows". Instead of treating the signal as
@@ -157,48 +158,52 @@ void Forward_SO3_Naive_fftw( int bw,
     me)
   */
 
-  fftw_execute( *p1 ) ;
-  
-  /* normalize the Fourier coefficients (sorry, have to do it) */
-  /* no, I don't! I can wait till the end */
-  /*
-    dn = 1. / sqrt( (double) n ) ;
-    for ( j = 0 ; j < n*n*n; j++ )
-    {
-    workspace_cx[ j ][0] *= dn ;
-    workspace_cx[ j ][1] *= dn ;
-    }
-  */
+fftw_execute( *p1 ) ;
+   fprintf(stderr, "### FFTW_FWD_FFT1: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx[0][0], workspace_cx[0][1], workspace_cx[1][0], workspace_cx[1][1], workspace_cx[2][0], workspace_cx[2][1]);
 
-  /*
-    Stage 2: transpose!
-  */
-  
-  transpose_cx( workspace_cx, workspace_cx2, n*n, n ) ;
+   /* normalize the Fourier coefficients (sorry, have to do it) */
+   /* no, I don't! I can wait till the end */
+   /*
+     dn = 1. / sqrt( (double) n ) ;
+     for ( j = 0 ; j < n*n*n; j++ )
+     {
+     workspace_cx[ j ][0] *= dn ;
+     workspace_cx[ j ][1] *= dn ;
+     }
+   */
+
+   /*
+     Stage 2: transpose!
+   */
+
+   transpose_cx( workspace_cx, workspace_cx2, n*n, n ) ;
+   fprintf(stderr, "### FFTW_FWD_TR1:  [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx2[0][0], workspace_cx2[0][1], workspace_cx2[1][0], workspace_cx2[1][1], workspace_cx2[2][0], workspace_cx2[2][1]);
 
   /*
     Stage 3: FFT again.
   */
 
-  fftw_execute( *p1 ) ;
+fftw_execute( *p1 ) ;
+   fprintf(stderr, "### FFTW_FWD_FFT2: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx[0][0], workspace_cx[0][1], workspace_cx[1][0], workspace_cx[1][1], workspace_cx[2][0], workspace_cx[2][1]);
 
 
-  /* normalize the Fourier coefficients (sorry, have to do it) */
-  /* no, I don't! I can wait till the end */
-  /*
-    dn = 1. / ((double) n) ;
-    for ( j = 0 ; j < n*n*n; j++ )
-    {
-    workspace_cx[ j ][0] *= dn ;
-    workspace_cx[ j ][1] *= dn ;
-    }
-  */
+   /* normalize the Fourier coefficients (sorry, have to do it) */
+   /* no, I don't! I can wait till the end */
+   /*
+     dn = 1. / ((double) n) ;
+     for ( j = 0 ; j < n*n*n; j++ )
+     {
+     workspace_cx[ j ][0] *= dn ;
+     workspace_cx[ j ][1] *= dn ;
+     }
+   */
 
-  /*
-    Stage 4: transpose again! And note I'm using the tmp space
-    of t2r, t2i again.
-  */
-  transpose_cx( workspace_cx, workspace_cx2, n*n, n ) ;
+   /*
+     Stage 4: transpose again! And note I'm using the tmp space
+     of t2r, t2i again.
+   */
+   transpose_cx( workspace_cx, workspace_cx2, n*n, n ) ;
+   fprintf(stderr, "### FFTW_FWD_TR2:  [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx2[0][0], workspace_cx2[0][1], workspace_cx2[1][0], workspace_cx2[1][1], workspace_cx2[2][0], workspace_cx2[2][1]);
 
   /*
     Stage 5: Do the Wigner transforms. This is the tricky bit.

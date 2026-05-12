@@ -101,8 +101,8 @@ void Forward_SO3_Naive_fftw(int bw,
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n*n, n,
-                                NULL, n*n, n,
+                                NULL, n, n,
+                                NULL, n, n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -119,6 +119,7 @@ void Forward_SO3_Naive_fftw(int bw,
 
     /* Copy input data to device (same as FFTW: memcpy workspace_cx2 from data) */
     CUDA_CHECK(cudaMemcpy(d_workspace_cx2, data, data_size, cudaMemcpyHostToDevice));
+    fprintf(stderr, "### CUFFT_FWD_COPY: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", data[0][0], data[0][1], data[1][0], data[1][1], data[2][0], data[2][1]);
 
     /* Stage 1: FFT the "rows" (INVERSE FFT for forward transform)
        FFTW: fftw_execute(p1) — workspace_cx2 -> workspace_cx (FFTW_BACKWARD, /N)
@@ -128,9 +129,11 @@ void Forward_SO3_Naive_fftw(int bw,
 
     /* D2H copy before transpose (FFTW works entirely in host memory) */
     CUDA_CHECK(cudaMemcpy(workspace_cx, d_workspace_cx, data_size, cudaMemcpyDeviceToHost));
+    fprintf(stderr, "### CUFFT_FWD_FFT1: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx[0][0], workspace_cx[0][1], workspace_cx[1][0], workspace_cx[1][1], workspace_cx[2][0], workspace_cx[2][1]);
 
     /* Stage 2: transpose (same as FFTW) */
     transpose_cx(workspace_cx, workspace_cx2, n*n, n);
+    fprintf(stderr, "### CUFFT_FWD_TR1:  [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx2[0][0], workspace_cx2[0][1], workspace_cx2[1][0], workspace_cx2[1][1], workspace_cx2[2][0], workspace_cx2[2][1]);
 
     /* H2D copy for next FFT stage */
     CUDA_CHECK(cudaMemcpy(d_workspace_cx2, workspace_cx2, data_size, cudaMemcpyHostToDevice));
@@ -141,9 +144,11 @@ void Forward_SO3_Naive_fftw(int bw,
 
     /* D2H copy before transpose */
     CUDA_CHECK(cudaMemcpy(workspace_cx, d_workspace_cx, data_size, cudaMemcpyDeviceToHost));
+    fprintf(stderr, "### CUFFT_FWD_FFT2: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx[0][0], workspace_cx[0][1], workspace_cx[1][0], workspace_cx[1][1], workspace_cx[2][0], workspace_cx[2][1]);
 
     /* Stage 4: transpose again */
     transpose_cx(workspace_cx, workspace_cx2, n*n, n);
+    fprintf(stderr, "### CUFFT_FWD_TR2:  [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n", workspace_cx2[0][0], workspace_cx2[0][1], workspace_cx2[1][0], workspace_cx2[1][1], workspace_cx2[2][0], workspace_cx2[2][1]);
 
     /* Stage 5: Wigner transforms (CPU-based, reads from workspace_cx2)
        Same logic as FFTW version */
@@ -401,8 +406,8 @@ void Inverse_SO3_Naive_fftw(int bw,
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n*n, n,
-                                NULL, n*n, n,
+                                NULL, n, n,
+                                NULL, n, n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
