@@ -95,14 +95,17 @@ void Forward_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, data_size));
 
    /* cuFFT plan: n*n batches of 1D FFT of length n
-        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n, idist=n, odist=n
-        FFTW stride along FFT dim = inembed[1]*istride = n*n*1 = n*n */
+        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n
+        FFTW: inembed={n,n*n}, istride=1, idist=n
+        → stride along FFT dim = inembed[0]*istride = n*1 = n
+        → batch distance = idist*istride = n*1 = n
+        cuFFT: istride=n, idist=1 → batch distance = 1*n = n ✓ */
     int rank = 1;
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n, n,
-                                NULL, n, n,
+                                NULL, n, 1,
+                                NULL, n, 1,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -400,14 +403,17 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, data_size));
 
   /* cuFFT plan: n*n batches of 1D FFT of length n
-        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n, idist=n, odist=n
-        FFTW stride along FFT dim = inembed[1]*istride = n*n*1 = n*n */
+        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n
+        FFTW: inembed={n,n*n}, istride=1, idist=n
+        → stride along FFT dim = inembed[0]*istride = n*1 = n
+        → batch distance = idist*istride = n*1 = n
+        cuFFT: istride=n, idist=1 → batch distance = 1*n = n ✓ */
     int rank = 1;
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n, n,
-                                NULL, n, n,
+                                NULL, n, 1,
+                                NULL, n, 1,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -656,9 +662,9 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx,
                               (cufftDoubleComplex*)d_workspace_cx2, CUFFT_FORWARD));
 
-    /* D2H and final transpose to output */
+    /* D2H and copy to output (no transpose — workspace_cx2 already in data layout) */
     CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
-    transpose_cx(workspace_cx2, data, n*n, n);
+    memcpy(data, workspace_cx2, data_size);
 
     /* Normalize output
        FFTW: two FORWARD transforms (no normalization), then data *= bw/(M_PI*n)
