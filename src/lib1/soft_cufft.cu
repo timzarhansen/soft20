@@ -425,7 +425,7 @@ void Inverse_SO3_Naive_fftw(int bw,
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
                                 NULL, n, 1,
-                                NULL, 1, n,
+                                NULL, n, 1,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
