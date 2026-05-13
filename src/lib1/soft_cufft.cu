@@ -89,12 +89,18 @@ void Forward_SO3_Naive_fftw(int bw,
     n = 2 * bw;
     n3 = n * n * n;
 
+    /* Strided plan reads up to index n^3 + n^2 - 2n (OOB by ~n^2).
+       FFTW survives because fftw_malloc zeros extra memory.
+       Allocate padding and zero it to match. */
+    size_t padded_size = sizeof(fftw_complex) * (n3 + n * n);
     size_t data_size = sizeof(fftw_complex) * n3;
 
-    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, data_size));
-    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, data_size));
+    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, padded_size));
+    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, padded_size));
+    CUDA_CHECK(cudaMemset(d_workspace_cx, 0, padded_size));
+    CUDA_CHECK(cudaMemset(d_workspace_cx2, 0, padded_size));
 
-   /* cuFFT plan: n*n batches of 1D FFT of length n
+    /* cuFFT plan: n*n batches of 1D FFT of length n
         Matches FFTW plan: rank=2, na={1,n}, howmany=n*n
         FFTW: inembed={n,n*n}, istride=1, idist=n
         → stride along FFT dim = inembed[0]*istride = n*1 = n
@@ -397,12 +403,18 @@ void Inverse_SO3_Naive_fftw(int bw,
     n = 2 * bw;
     n3 = n * n * n;
 
+    /* Strided plan reads up to index n^3 + n^2 - 2n (OOB by ~n^2).
+       FFTW survives because fftw_malloc zeros extra memory.
+       Allocate padding and zero it to match. */
+    size_t padded_size = sizeof(fftw_complex) * (n3 + n * n);
     size_t data_size = sizeof(fftw_complex) * n3;
 
-    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, data_size));
-    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, data_size));
+    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, padded_size));
+    CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx2, padded_size));
+    CUDA_CHECK(cudaMemset(d_workspace_cx, 0, padded_size));
+    CUDA_CHECK(cudaMemset(d_workspace_cx2, 0, padded_size));
 
-  /* cuFFT plan: n*n batches of 1D FFT of length n
+    /* cuFFT plan: n*n batches of 1D FFT of length n
         Matches FFTW plan: rank=2, na={1,n}, howmany=n*n
         FFTW: inembed={n,n*n}, istride=1, idist=n
         → stride along FFT dim = inembed[0]*istride = n*1 = n
