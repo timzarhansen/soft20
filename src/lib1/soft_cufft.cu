@@ -413,7 +413,7 @@ void Inverse_SO3_Naive_fftw(int bw,
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
                                 NULL, n, 1,
-                                NULL, n, 1,
+                                NULL, 1, n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -652,8 +652,8 @@ void Inverse_SO3_Naive_fftw(int bw,
 
     /* D2H before transpose */
     CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
-    /* Stage 4: transpose workspace_cx2 -> workspace_cx */
-    transpose_cx(workspace_cx2, workspace_cx, n*n, n);
+    /* Stage 4: transpose workspace_cx2 -> workspace_cx (n, n*n) to match FFTW */
+    transpose_cx(workspace_cx2, workspace_cx, n, n*n);
 
     /* H2D for next FFT stage */
     CUDA_CHECK(cudaMemcpy(d_workspace_cx, workspace_cx, data_size, cudaMemcpyHostToDevice));
