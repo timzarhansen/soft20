@@ -89,10 +89,15 @@ void Forward_SO3_Naive_fftw(int bw,
     n = 2 * bw;
     n3 = n * n * n;
 
-    /* Strided plan reads up to index n^3 + n^2 - 2n (OOB by ~n^2).
-       FFTW survives because fftw_malloc zeros extra memory.
-       Allocate padding and zero it to match. */
-    size_t padded_size = sizeof(fftw_complex) * (n3 + n * n);
+   /* cuFFT plan: match FFTW's memory access pattern exactly.
+        FFTW: rank=2, na={1,n}, howmany=n*n, inembed={n,n*n}, istride=1, idist=n
+        Physical index for batch k, element j: k*idist + j*istride*inembed[1] = k*n + j*n*n
+        Max index: (n*n-1)*n + (n-1)*n*n = 2*n^3 - n^2 - n (OOB!)
+        FFTW survives because fftw_malloc zeros extra memory.
+        cuFFT: rank=1, istride=n*n, idist=n
+        Physical index: k*idist + j*istride = k*n + j*n*n ✓
+        Allocate 2*n^3 to handle OOB reads (should be zero). */
+    size_t padded_size = sizeof(fftw_complex) * (2 * n3);
     size_t data_size = sizeof(fftw_complex) * n3;
 
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, padded_size));
@@ -100,18 +105,12 @@ void Forward_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMemset(d_workspace_cx, 0, padded_size));
     CUDA_CHECK(cudaMemset(d_workspace_cx2, 0, padded_size));
 
-    /* cuFFT plan: n*n batches of 1D FFT of length n
-        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n
-        FFTW: inembed={n,n*n}, istride=1, idist=n
-        → stride along FFT dim = inembed[0]*istride = n*1 = n
-        → batch distance = idist*istride = n*1 = n
-        cuFFT: istride=n, idist=1 → batch distance = 1*n = n ✓ */
     int rank = 1;
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n, 1,
-                                NULL, n, 1,
+                                NULL, n*n, n,
+                                NULL, n*n, n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -363,9 +362,10 @@ void Forward_SO3_Naive_fftw(int bw,
         }
     }
 
-    /* Normalize coefficients
-       FFTW: two BACKWARD transforms divide by n^2, then coeffs *= M_PI/(bw*n)
-       cuFFT: two INVERSE transforms do NOT divide, so we need extra 1/n^2 factor */
+   /* Normalize coefficients
+        FFTW: two BACKWARD transforms divide by n^2, then coeffs *= M_PI/(bw*n)
+        cuFFT: two INVERSE transforms do NOT divide
+        Both produce same total: M_PI/(bw*n^3) */
     double dn = M_PI / ((double)(bw * n * n * n));
     int tmpInt = totalCoeffs_so3(bw);
     for (j = 0; j < tmpInt; j++) {
@@ -403,10 +403,15 @@ void Inverse_SO3_Naive_fftw(int bw,
     n = 2 * bw;
     n3 = n * n * n;
 
-    /* Strided plan reads up to index n^3 + n^2 - 2n (OOB by ~n^2).
-       FFTW survives because fftw_malloc zeros extra memory.
-       Allocate padding and zero it to match. */
-    size_t padded_size = sizeof(fftw_complex) * (n3 + n * n);
+  /* cuFFT plan: match FFTW's memory access pattern exactly.
+        FFTW: rank=2, na={1,n}, howmany=n*n, inembed={n,n*n}, istride=1, idist=n
+        Physical index for batch k, element j: k*idist + j*istride*inembed[1] = k*n + j*n*n
+        Max index: (n*n-1)*n + (n-1)*n*n = 2*n^3 - n^2 - n (OOB!)
+        FFTW survives because fftw_malloc zeros extra memory.
+        cuFFT: rank=1, istride=n*n, idist=n
+        Physical index: k*idist + j*istride = k*n + j*n*n ✓
+        Allocate 2*n^3 to handle OOB reads (should be zero). */
+    size_t padded_size = sizeof(fftw_complex) * (2 * n3);
     size_t data_size = sizeof(fftw_complex) * n3;
 
     CUDA_CHECK(cudaMalloc((void**)&d_workspace_cx, padded_size));
@@ -414,18 +419,12 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMemset(d_workspace_cx, 0, padded_size));
     CUDA_CHECK(cudaMemset(d_workspace_cx2, 0, padded_size));
 
-    /* cuFFT plan: n*n batches of 1D FFT of length n
-        Matches FFTW plan: rank=2, na={1,n}, howmany=n*n
-        FFTW: inembed={n,n*n}, istride=1, idist=n
-        → stride along FFT dim = inembed[0]*istride = n*1 = n
-        → batch distance = idist*istride = n*1 = n
-        cuFFT: istride=n, idist=1 → batch distance = 1*n = n ✓ */
     int rank = 1;
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n, 1,
-                                NULL, n, 1,
+                                NULL, n*n, n,
+                                NULL, n*n, n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -678,11 +677,13 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
     memcpy(data, workspace_cx2, data_size);
 
-    /* Normalize output
-       FFTW: two FORWARD transforms (no normalization), then data *= bw/(M_PI*n)
-       cuFFT: two FORWARD transforms each divide by n, total 1/n^2
-       Need to multiply by n^2 to compensate */
-    double dn = ((double)bw) / M_PI * (double)n;
+  /* Normalize output
+        FFTW: two FORWARD transforms (no normalization), then data *= bw/(M_PI*n)
+        cuFFT: two FORWARD transforms each divide by n, total 1/n^2
+        Need to multiply by n^2 to compensate, so: bw*n^2/(M_PI*n) = bw*n/M_PI
+        Wait, FFTW does: bw/(M_PI*n). cuFFT divides by n^2 extra. So multiply by n^2:
+        dn = bw/(M_PI*n) * n^2 = bw*n/M_PI */
+    double dn = ((double)bw * (double)n) / M_PI;
     for (j = 0; j < n3; j++) {
         data[j][0] *= dn;
         data[j][1] *= dn;

@@ -1,0 +1,118 @@
+# SOFT20 cuFFT Migration - Error Analysis Tests
+# Location: src/soft20/error_analysis_tests (NOT committed to git)
+
+## Summary
+Migrating soft20 from FFTW (CPU) to cuFFT (GPU) for SO(3) Fourier Transforms.
+bw=8 passes consistently, bw=128 fails with L2=1.15, max=2.83.
+
+## Attempts Made (Chronological)
+
+### Attempt 1: Initial cuFFT implementation
+- Basic plan: rank=1, nfft=n, howmany=n*n
+- istride=1, idist=n (contiguous reads)
+- Result: Failed both bw=8 and bw=128
+
+### Attempt 2: Fix istride to n
+- Changed istride=1 -> istride=n, idist=1
+- Rationale: tried to match FFTW's strided layout
+- Result: bw=8 passed, bw=128 failed (L2=1.16)
+
+### Attempt 3: Fix Inverse final step
+- Changed transpose_cx -> memcpy (workspace already in data layout)
+- Result: No change
+
+### Attempt 4: Fix Inverse second transpose dims
+- Changed (n*n, n) -> (n, n*n)
+- Result: No change
+
+### Attempt 5: Add padding to GPU buffers
+- Allocated n^3 + n^2 elements, zeroed padding
+- Rationale: handle potential OOB strided reads
+- Result: bw=8 passed, bw=128 still failed (same error)
+
+### Attempt 6: Fix Inverse plan output stride
+- Changed ostride=1, odist=n -> ostride=n, odist=1
+- Rationale: make Inverse output match Forward input layout
+- Result: bw=8 passed, bw=128 still failed (same error)
+
+## Root Cause Analysis
+
+### FFTW Plan Memory Access
+FFTW plan: rank=2, na={1,n}, howmany=n*n, inembed={n,n*n}, istride=1, idist=n
+
+Physical index for batch k, element j:
+  k * idist + j * istride * inembed[1] = k * n + j * n*n
+
+This FFTs along the k-axis (slowest 3D dimension).
+Max index: (n*n-1) * n + (n-1) * n*n = 2*n^3 - n^2 - n
+This is OOB for buffer of size n^3, but FFTW survives because fftw_malloc zeros extra memory.
+
+### cuFFT Plan Memory Access (WRONG)
+cuFFT plan: rank=1, nfft=n, howmany=n*n, istride=n, idist=1
+
+Physical index for batch k, element j:
+  k * idist + j * istride = k + j * n
+
+This FFTs along the j-axis (middle 3D dimension) with wrapping for k >= n.
+Max index: (n*n-1) + (n-1) * n = 2*n^2 - n - 1
+
+The wrapping means batch k and batch k+n read from the same memory region,
+corrupting the transform for large n.
+
+### Why bw=8 passes but bw=128 fails
+For n=16 (bw=8): the wrapping pattern may coincidentally produce correct results
+due to data sparsity (many zeros in the SO(3) sampling grid).
+For n=256 (bw=128): the data is dense enough that wrapping corruption is visible.
+
+### Normalization Issues (Also Wrong)
+Forward:
+  FFTW: two BACKWARD (/N each) + *pi/(bw*n) = *pi/(bw*n^3)
+  cuFFT: two INVERSE (no normalize) + *pi/(bw*n^3) -- WRONG, needs /n^2
+  Correct: *pi/(bw*n)
+
+Inverse:
+  FFTW: two FORWARD (no normalize) + *bw/(pi*n) = *bw/(pi*n)
+  cuFFT: two FORWARD (/N each) + *bw*n/pi = *bw/(pi*n) -- WRONG, cuFFT divides by n^2
+  Correct: *bw*n^2/pi
+
+## Fix Plan
+
+1. cuFFT plan: istride=n*n, idist=n (match FFTW access pattern)
+2. GPU buffers: allocate 2*n^3 elements (handle OOB reads)
+3. Forward normalization: pi/(bw*n^3) -> pi/(bw*n)
+4. Inverse normalization: bw*n/pi -> bw*n^2/pi
+
+## Debug Print Strategy
+Print first 3 elements after each stage for both FFTW and cuFFT:
+- Stage 0: input data
+- Stage 1: after first FFT
+- Stage 2: after first transpose
+- Stage 3: after second FFT
+- Stage 4: after second transpose
+
+This will verify that each stage matches between backends.
+
+## Test Results Reference
+bw=8 (n=16): PASS (L2=5.42e-16, max=3.27e-15)
+bw=128 (n=256): FAIL (L2=1.15, max=2.83)
+
+## Relevant cuFFT Documentation
+From NVIDIA cuFFT docs (Context7 /websites/nvidia_cuda_archive_11_0_ga):
+cufftPlanMany(rank, n, inembed, istride, idist, onembed, ostride, odist, type, howmany)
+
+For rank=1:
+  inembed, onembed are ignored
+  Physical index: batch*k + j*istride
+  where k = batch index [0, howmany), j = element index [0, n)
+
+cufftExecZ2Z:
+  FORWARD: divides by n
+  INVERSE: no normalization
+
+FFW comparison:
+  FFTW_FORWARD: no normalization
+  FFTW_BACKWARD: divides by N (product of all na dimensions)
+
+## Memory Budget
+For n=256: 2*n^3 = 33.55M elements * 16 bytes = 536MB per buffer
+Two buffers = ~1GB total (feasible on RTX 3090 with 24GB)
