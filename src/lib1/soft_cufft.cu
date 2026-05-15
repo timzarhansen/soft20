@@ -110,7 +110,7 @@ void Forward_SO3_Naive_fftw(int bw,
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
                                 NULL, n*n, n,
-                                NULL, n*n, n,
+                                NULL, 1, n*n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -424,7 +424,7 @@ void Inverse_SO3_Naive_fftw(int bw,
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
                                 NULL, n*n, n,
-                                NULL, n*n, n,
+                                NULL, 1, n*n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -676,8 +676,8 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx,
                               (cufftDoubleComplex*)d_workspace_cx2, CUFFT_FORWARD));
 
-    /* D2H before transpose - MUST copy full padded_size to capture strided output */
-    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, 2*data_size, cudaMemcpyDeviceToHost));
+    /* D2H before transpose - contiguous output, so data_size is sufficient */
+    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
     fprintf(stderr, "### INV_FFT1:  [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
             workspace_cx2[0][0], workspace_cx2[0][1],
             workspace_cx2[1][0], workspace_cx2[1][1],
@@ -698,8 +698,8 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx,
                               (cufftDoubleComplex*)d_workspace_cx2, CUFFT_FORWARD));
 
-    /* D2H and copy to output - MUST copy full padded_size to capture strided output */
-    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, 2*data_size, cudaMemcpyDeviceToHost));
+    /* D2H and copy to output - contiguous output, so data_size is sufficient */
+    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
     memcpy(data, workspace_cx2, data_size);
 
     fprintf(stderr, "### INV_OUTPUT: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
