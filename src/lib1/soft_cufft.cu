@@ -89,14 +89,9 @@ void Forward_SO3_Naive_fftw(int bw,
     n = 2 * bw;
     n3 = n * n * n;
 
-   /* cuFFT plan: match FFTW's memory access pattern exactly.
-        FFTW: rank=2, na={1,n}, howmany=n*n, inembed={n,n*n}, istride=1, idist=n
-        Physical index for batch k, element j: k*idist + j*istride*inembed[1] = k*n + j*n*n
-        Max index: (n*n-1)*n + (n-1)*n*n = 2*n^3 - n^2 - n (OOB!)
-        FFTW survives because fftw_malloc zeros extra memory.
-        cuFFT: rank=1, istride=n*n, idist=n
-        Physical index: k*idist + j*istride = k*n + j*n*n ✓
-        Allocate 2*n^3 to handle OOB reads (should be zero). */
+   /* cuFFT plan: rank-1 FFT of size n, n*n batches, contiguous layout.
+        Contiguous layout: batch k accesses elements [k*n, k*n+n-1].
+        D2H/H2D copies transfer data_size = n³ elements. */
     size_t padded_size = sizeof(fftw_complex) * (2 * n3);
     size_t data_size = sizeof(fftw_complex) * n3;
 
@@ -109,8 +104,8 @@ void Forward_SO3_Naive_fftw(int bw,
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n*n, n,
-                                NULL, 1, n*n,
+                                NULL, 1, n,
+                                NULL, 1, n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;
@@ -403,14 +398,9 @@ void Inverse_SO3_Naive_fftw(int bw,
     n = 2 * bw;
     n3 = n * n * n;
 
-  /* cuFFT plan: match FFTW's memory access pattern exactly.
-        FFTW: rank=2, na={1,n}, howmany=n*n, inembed={n,n*n}, istride=1, idist=n
-        Physical index for batch k, element j: k*idist + j*istride*inembed[1] = k*n + j*n*n
-        Max index: (n*n-1)*n + (n-1)*n*n = 2*n^3 - n^2 - n (OOB!)
-        FFTW survives because fftw_malloc zeros extra memory.
-        cuFFT: rank=1, istride=n*n, idist=n
-        Physical index: k*idist + j*istride = k*n + j*n*n ✓
-        Allocate 2*n^3 to handle OOB reads (should be zero). */
+   /* cuFFT plan: rank-1 FFT of size n, n*n batches, contiguous layout.
+        Contiguous layout: batch k accesses elements [k*n, k*n+n-1].
+        D2H/H2D copies transfer data_size = n³ elements. */
     size_t padded_size = sizeof(fftw_complex) * (2 * n3);
     size_t data_size = sizeof(fftw_complex) * n3;
 
@@ -423,8 +413,8 @@ void Inverse_SO3_Naive_fftw(int bw,
     int nfft = n;
     int howmany = n * n;
     CUFFT_CHECK(cufftPlanMany(&plan, rank, &nfft,
-                                NULL, n*n, n,
-                                NULL, 1, n*n,
+                                NULL, 1, n,
+                                NULL, 1, n,
                                 CUFFT_Z2Z, howmany));
 
     sinPts = workspace_re;

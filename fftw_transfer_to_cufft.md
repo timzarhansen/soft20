@@ -1,7 +1,7 @@
 # SOFT20 FFTW → cuFFT Migration: Comprehensive Problem Report
 
 **Date**: 2026-05-15
-**Status**: ATTEMPT 9 FAILED — bw=8 passes, bw=128 fails (L2=1.16). New root cause: FFTW in-place vs cuFFT out-of-place mismatch. Option D/E/F are the new recommended paths.
+**Status**: FIX APPLIED — cuFFT plan changed to contiguous layout (`istride=1, idist=n, ostride=1, odist=n`). Both forward and inverse plans fixed. Awaiting GPU test.
 **Target**: 4-6x speedup on NVIDIA RTX 3090 (CUDA 13.1, CC 8.6)
 
 ---
