@@ -55,9 +55,9 @@ void Forward_SO3_Naive_fftw_W(int bw,
     int n = 2 * bw;
     int n3 = n * n * n;
     
-    // Allocate workspaces
+    // Allocate workspaces (workspace_cx2 needs 2*n3 for strided cuFFT output)
     fftw_complex *workspace_cx = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
+    fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * 2 * n3);
    double *workspace_re = (double*)malloc(sizeof(double) * (24 * bw + 2 * bw * bw));
     double *weights = (double*)malloc(sizeof(double) * (2 * bw));
     
@@ -90,10 +90,10 @@ void Inverse_SO3_Naive_fftw_W(int bw,
     int n = 2 * bw;
     int n3 = n * n * n;
     
-    // Allocate workspaces
+    // Allocate workspaces (workspace_cx2 needs 2*n3 for strided cuFFT output)
     fftw_complex *workspace_cx = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * n3);
-    double *workspace_re = (double*)malloc(sizeof(double) * (24 * bw + 2 * bw * bw));
+    fftw_complex *workspace_cx2 = (fftw_complex*)malloc(sizeof(fftw_complex) * 2 * n3);
+     double *workspace_re = (double*)malloc(sizeof(double) * (24 * bw + 2 * bw * bw));
     
     // Call the transform
     Inverse_SO3_Naive_fftw(bw, coeffs, signal, workspace_cx, workspace_cx2,

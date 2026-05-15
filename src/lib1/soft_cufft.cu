@@ -651,20 +651,45 @@ void Inverse_SO3_Naive_fftw(int bw,
         dataPtr += (2*n)*(bw);
     }
 
+    fprintf(stderr, "### INV_WIG:   [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
+            workspace_cx[0][0], workspace_cx[0][1],
+            workspace_cx[1][0], workspace_cx[1][1],
+            workspace_cx[2][0], workspace_cx[2][1]);
+
     /* Stage 2: transpose workspace_cx -> workspace_cx2 */
     transpose_cx(workspace_cx, workspace_cx2, n, n*n);
 
+    fprintf(stderr, "### INV_TR1:   [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
+            workspace_cx2[0][0], workspace_cx2[0][1],
+            workspace_cx2[1][0], workspace_cx2[1][1],
+            workspace_cx2[2][0], workspace_cx2[2][1]);
+
     /* H2D for FFT stage */
     CUDA_CHECK(cudaMemcpy(d_workspace_cx, workspace_cx2, data_size, cudaMemcpyHostToDevice));
+
+    fprintf(stderr, "### INV_H2D1:  [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
+            workspace_cx2[0][0], workspace_cx2[0][1],
+            workspace_cx2[1][0], workspace_cx2[1][1],
+            workspace_cx2[2][0], workspace_cx2[2][1]);
 
     /* Stage 3: FFT (FORWARD) */
     CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx,
                               (cufftDoubleComplex*)d_workspace_cx2, CUFFT_FORWARD));
 
-    /* D2H before transpose */
-    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
+    /* D2H before transpose - MUST copy full padded_size to capture strided output */
+    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, 2*data_size, cudaMemcpyDeviceToHost));
+    fprintf(stderr, "### INV_FFT1:  [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
+            workspace_cx2[0][0], workspace_cx2[0][1],
+            workspace_cx2[1][0], workspace_cx2[1][1],
+            workspace_cx2[2][0], workspace_cx2[2][1]);
+
     /* Stage 4: transpose workspace_cx2 -> workspace_cx (n, n*n) to match FFTW */
     transpose_cx(workspace_cx2, workspace_cx, n, n*n);
+
+    fprintf(stderr, "### INV_TR2:   [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
+            workspace_cx[0][0], workspace_cx[0][1],
+            workspace_cx[1][0], workspace_cx[1][1],
+            workspace_cx[2][0], workspace_cx[2][1]);
 
     /* H2D for next FFT stage */
     CUDA_CHECK(cudaMemcpy(d_workspace_cx, workspace_cx, data_size, cudaMemcpyHostToDevice));
@@ -673,9 +698,14 @@ void Inverse_SO3_Naive_fftw(int bw,
     CUFFT_CHECK(cufftExecZ2Z(plan, (cufftDoubleComplex*)d_workspace_cx,
                               (cufftDoubleComplex*)d_workspace_cx2, CUFFT_FORWARD));
 
-    /* D2H and copy to output (no transpose — workspace_cx2 already in data layout) */
-    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, data_size, cudaMemcpyDeviceToHost));
+    /* D2H and copy to output - MUST copy full padded_size to capture strided output */
+    CUDA_CHECK(cudaMemcpy(workspace_cx2, d_workspace_cx2, 2*data_size, cudaMemcpyDeviceToHost));
     memcpy(data, workspace_cx2, data_size);
+
+    fprintf(stderr, "### INV_OUTPUT: [%.4f %.4f] [%.4f %.4f] [%.4f %.4f]\n",
+            data[0][0], data[0][1],
+            data[1][0], data[1][1],
+            data[2][0], data[2][1]);
 
   /* Normalize output
         FFTW: two FORWARD transforms (no normalization), then data *= bw/(M_PI*n)
