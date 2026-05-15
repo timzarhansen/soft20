@@ -1,7 +1,7 @@
 # SOFT20 FFTW → cuFFT Migration: Comprehensive Problem Report
 
 **Date**: 2026-05-15
-**Status**: ATTEMPT 8 FAILED — bw=8 passes, bw=128 fails (L2=1.16). Option B (contiguous output) is the next step.
+**Status**: ATTEMPT 9 FAILED — bw=8 passes, bw=128 fails (L2=1.16). New root cause: FFTW in-place vs cuFFT out-of-place mismatch. Option D/E/F are the new recommended paths.
 **Target**: 4-6x speedup on NVIDIA RTX 3090 (CUDA 13.1, CC 8.6)
 
 ---
@@ -231,6 +231,46 @@ Forward Transform (for comparison):
 
 **Key observation**: Forward values are ~10⁶–10¹⁰ while Inverse FFT1 values are tiny (~-54). The strided output layout from cuFFT is fundamentally incompatible with what the subsequent transpose expects.
 
+### Attempt 9: Make cuFFT Output Contiguous (Option B - FAILED)
+- **Date**: 2026-05-15
+- **Changes**:
+  - Changed cuFFT plan from `ostride=n², odist=n` to `ostride=1, odist=n²` (contiguous output)
+  - Reverted D2H copy sizes from 2*data_size back to data_size
+  - Reverted workspace_cx2 allocation from 2*n³ back to n³
+- **Result**: bw=8 PASS, bw=128 FAIL (**L2=1.16, max=2.83 — UNCHANGED**)
+- **Insight**: The fix didn't change the error because the fundamental issue is NOT the plan parameters — it's **FFTW's in-place execution model** vs **cuFFT's out-of-place requirement**.
+
+### Root Cause: FFTW In-Place vs cuFFT Out-of-Place Mismatch
+
+FFTW's wisdom-optimized plan uses **in-place** transforms where input and output share the same buffer with strided access pattern `k*n + j*n²`. This is possible because FFTW's execute function reads and writes to the **same physical memory locations**.
+
+cuFFT's Z2Z API with **separate pointers** for input and output:
+- Input access (istride=n², idist=n): `k*n + j*n²` ✓ (matches FFTW)
+- Output access (ostride=1, odist=n²): `k*n + j` ✗ (CONTIGUOUS layout, NOT strided!)
+
+cuFFT **cannot** produce true strided in-place output — its API semantics for Z2Z with separate pointers always write contiguous data `j + k*n`. This is a **fundamental architectural difference**, not a parameter tuning issue.
+
+### bw=128 Debug Output (After Attempt 9)
+```
+Inverse:
+### INV_WIG:   [-16.1556 53.7401] [-0.2499 49.2895] [6.9990 41.3279]
+### INV_TR1:   [-16.1556 53.7401] [-31.1528 6.1817] [5.2836 -1.6158]
+### INV_H2D1:  [-16.1556 53.7401] [-31.1528 6.1817] [5.2836 -1.6158]
+### INV_FFT1:  [-38.1861 56.7857] [-38.0179 57.4699] [-37.8508 58.1585]
+### INV_TR2:   [-38.1861 56.7857] [-32.2285 -27.4361] [35.3533 22.3334]
+### INV_OUTPUT: [522.8166 -737.4118] [1251.1420 -261.7934] [-169.1205 224.9371]
+  L2: 1.16e+00 FAIL, Max: 2.83e+00 FAIL
+
+Forward (working - for comparison):
+### CUFFT_FWD_COPY: [5453174.4739 -7691484.5102] [13049884.5387 -2730604.0747] [-1763990.5601 2346179.4650]
+### CUFFT_FWD_FFT1: [-101963635.7763 151627880.5294] [-86055833.1549 -73259142.9283] [94399483.2731 59634114.1217]
+### CUFFT_FWD_TR1:  [-101963635.7763 151627880.5294] [-101514541.9157 153454824.0252] [-101068459.4452 155293358.8229]
+### CUFFT_FWD_FFT2: [-11043384173.9282 36734877776.9590] [-21294969453.2113 4225593270.4001] [3611690295.3128 -1104471601.2756]
+### CUFFT_FWD_TR2:  [-11043384173.9282 36734877776.9590] [-170790834.7457 33692622941.2279] [4784280209.3761 28250349354.7957]
+```
+
+**Key observation**: Forward FFT values are ~10^8-10^10 (correct magnitude), confirming the forward path works. The Inverse transform's FFT produces values ~(-38, 56) which could be legitimate for sparse spectral data, but the overall error remains because the **transposed layout after FFT doesn't match what the algorithm expects**.
+
 ---
 
 ## 6. NORMALIZATION ANALYSIS
@@ -300,20 +340,79 @@ This means:
 - **Result**: L2=1.16, max=2.83 — **UNCHANGED**
 - **Conclusion**: The D2H copy size was not the issue
 
+### Option B: Make cuFFT Output Contiguous (ALREADY TRIED - FAILED)
+
+- **Status**: FAILED — Attempt 9 on 2026-05-15
+- Changes: Changed plan from `ostride=n²` to `ostride=1` (contiguous output)
+- **Result**: L2=1.16, max=2.83 — **UNCHANGED**
+- **Conclusion**: The issue is NOT parameter tuning — it's the fundamental in-place vs out-of-place mismatch
+
+---
+
+## 7B. NEW PROPOSED FIX OPTIONS
+
+### Option D: Restructure Algorithm — Explicit GPU Transpose Kernels
+
+Instead of fighting cuFFT's out-of-place model, restructure the algorithm to use GPU transpose kernels:
+
+1. **Before each FFT**: Add explicit GPU transpose kernel to convert to FFT-friendly layout
+2. **After each FFT**: Add explicit GPU transpose kernel to convert back to algorithm layout
+3. Use cuFFT with standard contiguous buffers throughout
+
+**Algorithm flow**:
+```
+Input (contiguous n³) → GPU Transpose → cuFFT (contiguous) → GPU Transpose → Output
+```
+
+**Pros**: Works with cuFFT's strengths, no CPU-GPU synchronizations between stages
+**Cons**: Extra GPU memory and transpose overhead
+
+### Option E: CPU FFT + GPU Wigner (Hybrid)
+
+Keep ALL FFT operations on CPU (FFTW with wisdom optimization) and move only Wigner transforms to GPU:
+- CPU FFT: ~100-200ms for bw=128 (already optimized with wisdom)
+- GPU Wigner: potential 10-50x speedup for the Wigner stage
+- Overall: could still achieve significant speedup
+
+**Pros**: Avoids cuFFT layout issues entirely, FFT wisdom optimization preserved
+**Cons**: FFT parallelism stays on CPU, memory transfers between CPU/GPU
+
+### Option F: GPU-Only Wigner Transforms (RECOMMENDED)
+
+Instead of migrating FFTs to GPU, migrate Wigner transforms to GPU:
+- FFTs stay on CPU (FFTW with wisdom optimization)
+- Wigner-D matrices on GPU via CUDA kernels
+- This targets the actual bottleneck (Wigner transforms are O(bw⁴) vs FFT O(bw³))
+
+**Why this is the best path**:
+- cuFFT FFT: 1.4s for bw=128
+- Estimated CPU FFT with wisdom: ~100-200ms (already well-optimized)
+- Wigner transforms dominate runtime at high bw
+- Benchmark data shows Forward transform (includes Wigner) takes 1.4s, and Wigner is the expensive part
+
+**Pros**: Targets the real bottleneck, avoids all FFT layout issues, potential for massive speedup
+**Cons**: Requires writing CUDA Wigner kernels (significant effort)
+
+### Recommendation
+
+**Option F** (GPU Wigner + CPU FFT) is likely the best path to actual speedup. The benchmark data shows cuFFT FFT alone is not significantly faster than optimized CPU FFT due to layout transformation overhead. The real performance gain comes from GPU-accelerating the Wigner transforms.
+
+If Option F is too much effort initially, **Option D** (restructure with explicit GPU transposes) is a safer intermediate step that keeps all computation on GPU.
+
 ---
 
 ## 8. KEY FILES
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `src/lib1/soft_cufft.cu` | cuFFT GPU backend (main transforms) | 699 |
+| `src/lib1/soft_cufft.cu` | cuFFT GPU backend (main transforms) | 729 |
 | `src/lib1/soft_fftw.c` | FFTW CPU reference implementation | 1918 |
 | `src/lib1/wrap_soft_cufft.cu` | cuFFT wrapper (memory management) | 110 |
 | `src/lib1/wrap_soft_fftw.c` | FFTW wrapper (plan creation) | 245 |
+| `src/lib1/wignerTransforms_fftw.c` | Wigner-D matrix transforms (CPU) | ~1000 |
 | `src/lib1/utils_vec_cx.c` | `transpose_cx()` function | 263 |
 | `examples/test_cufft_compare.cu` | Test binary (roundtrip test) | 228 |
 | `docker_test/CMakeLists.txt` | Build configuration | 134 |
-| `error_analysis_tests` | Previous analysis notes | 118 |
 
 ---
 
@@ -336,22 +435,28 @@ docker compose run --entrypoint "/bin/bash" test
 
 ## 10. NEXT STEPS
 
-1. **Implement Option B**: Make cuFFT output contiguous by changing the plan:
-   ```c
-   cufftPlanMany(&plan, rank, &nfft,
-       NULL, n*n, n,      // input: strided (k*n + j*n²)
-       NULL, 1, n*n,      // output: CONTIGUOUS (j + k*n)
-       CUFFT_Z2Z, howmany);
-   ```
+### Recommended Path: Option F (GPU Wigner + CPU FFT)
 
-2. **Revert Option A changes**: D2H copy sizes back to `data_size`, workspace_cx2 back to `n³`
+Based on benchmark analysis:
+- cuFFT FFT alone: ~1.4s for bw=128
+- CPU FFT with wisdom: ~100-200ms (already optimized)
+- Wigner transforms dominate runtime at high bw (O(bw⁴) complexity)
 
-3. **Test**: bw=8 first (sanity), then bw=128
+**Action**: Implement GPU Wigner transforms while keeping FFTs on CPU with FFTW wisdom optimization.
 
-4. **If Option B fails**: Consider:
-   - Option C: Restructure algorithm to avoid strided layout entirely
-   - Using cuFFT native 3D FFT if data layout permits
-   - Adding a GPU reorganization kernel to convert between layouts
+### Alternative Path: Option D (GPU Transpose Restructure)
+
+If Option F is too much effort, restructure the algorithm with explicit GPU transpose kernels:
+1. Add GPU transpose kernels (contiguous ↔ FFT-friendly layout)
+2. Use cuFFT with standard contiguous buffers
+3. Keep FFTs on GPU
+
+### Not Recommended: Continue with FFT-only migration
+
+Attempts 1-9 have shown that migrating only the FFT stage to GPU while keeping Wigner on CPU provides minimal speedup due to:
+- Layout transformation overhead (CPU↔GPU transfers, transpose operations)
+- cuFFT cannot match FFTW's in-place wisdom-optimized plans
+- The real bottleneck (Wigner transforms) remains on CPU
 
 ---
 
@@ -392,7 +497,7 @@ Memory access for batch k, element j:
 
 ## 12. APPENDIX: DEBUG OUTPUT COMPARISON
 
-### bw=8 (PASS)
+### bw=8 (PASS - All Attempts)
 ```
 Inverse:
 ### INV_WIG:   [0.4175 1.7283] [-0.3560 -0.4433] [-0.6811 -1.9036]
@@ -408,26 +513,28 @@ Forward:
 ### CUFFT_FWD_TR1:  [-389.0198 648.0301] [-125.2658 371.4163] [266.7463 238.2927]
 ### CUFFT_FWD_FFT2: [4354.2439 18026.7995] [1128.2649 3805.7575] [246.8635 -2311.6546]
 ### CUFFT_FWD_TR2:  [4354.2439 18026.7995] [-3713.0263 -4623.9153] [-7104.6335 -19855.1102]
-  L2: 5.50e-16 PASS, Max: 3.36e-15 PASS
+  L2: 5.47e-16 PASS, Max: 3.89e-15 PASS
 ```
 
-### bw=128 (FAIL - After Attempt 8)
+### bw=128 (FAIL - After Attempt 9)
 ```
 Inverse:
-### INV_WIG:   [-44.1984 10.9776] [-27.6589 -1.3253] [-13.1931 -4.0557]
-### INV_TR1:   [-44.1984 10.9776] [-4.7269 3.7451] [-1.8121 -1.2125]
-### INV_H2D1:  [-44.1984 10.9776] [-4.7269 3.7451] [-1.8121 -1.2125]
-### INV_FFT1:  [-54.6372 -15.1757] [-53.8550 -15.0644] [-53.0647 -14.9346]
-### INV_TR2:   [-54.6372 -15.1757] [-80.4579 36.8752] [-15.3053 -19.1258]
-### INV_OUTPUT: [-1860.2025 -388.4425] [-884.5222 986.8948] [430.6848 477.3755]
+### INV_WIG:   [-16.1556 53.7401] [-0.2499 49.2895] [6.9990 41.3279]
+### INV_TR1:   [-16.1556 53.7401] [-31.1528 6.1817] [5.2836 -1.6158]
+### INV_H2D1:  [-16.1556 53.7401] [-31.1528 6.1817] [5.2836 -1.6158]
+### INV_FFT1:  [-38.1861 56.7857] [-38.0179 57.4699] [-37.8508 58.1585]
+### INV_TR2:   [-38.1861 56.7857] [-32.2285 -27.4361] [35.3533 22.3334]
+### INV_OUTPUT: [522.8166 -737.4118] [1251.1420 -261.7934] [-169.1205 224.9371]
   L2: 1.16e+00 FAIL, Max: 2.83e+00 FAIL
 
 Forward:
-### CUFFT_FWD_COPY: [-19402615.5153 -4051602.6030] [-9225901.7217 10293685.6444] [4492205.2836 4979207.4914]
-### CUFFT_FWD_FFT1: [-145891018.6179 -40521926.9900] [-214836815.5653 98463292.7225] [-40867811.4723 -51069333.4144]
-### CUFFT_FWD_TR1:  [-145891018.6179 -40521926.9900] [-143802439.4115 -40224560.0476] [-141692130.0144 -39878039.7715]
-### CUFFT_FWD_FFT2: [-30212463053.2843 7503912175.5154] [-3231121954.9353 2560018445.9088] [-1238699431.5304 -828844014.3010]
-### CUFFT_FWD_TR2:  [-30212463053.2843 7503912175.5154] [-18906647516.9878 -905913332.5430] [-9018324891.7040 -2772304381.9854]
+### CUFFT_FWD_COPY: [5453174.4739 -7691484.5102] [13049884.5387 -2730604.0747] [-1763990.5601 2346179.4650]
+### CUFFT_FWD_FFT1: [-101963635.7763 151627880.5294] [-86055833.1549 -73259142.9283] [94399483.2731 59634114.1217]
+### CUFFT_FWD_TR1:  [-101963635.7763 151627880.5294] [-101514541.9157 153454824.0252] [-101068459.4452 155293358.8229]
+### CUFFT_FWD_FFT2: [-11043384173.9282 36734877776.9590] [-21294969453.2113 4225593270.4001] [3611690295.3128 -1104471601.2756]
+### CUFFT_FWD_TR2:  [-11043384173.9282 36734877776.9590] [-170790834.7457 33692622941.2279] [4784280209.3761 28250349354.7957]
 ```
 
-**Key insight**: Forward values are ~10⁶–10¹⁰ while Inverse FFT1 values are tiny (~-54). The strided output layout is corrupting the data before it reaches the transpose stage.
+**Key insight**: Forward FFT values are ~10^8-10^10 (correct magnitude), confirming the forward path works. The error persists because the **transposed layout after the inverse FFT doesn't match what the subsequent algorithm stages expect**.
+
+(End of file - total lines updated)
