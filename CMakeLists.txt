@@ -77,6 +77,7 @@ if(USE_CUFFT)
         src/common/wignerTransforms.c
     )
     target_link_libraries(soft20 cuda cufft)
+    set_target_properties(soft20 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 else()
     # Default: FFTW CPU backend
     add_library(soft20
@@ -105,6 +106,7 @@ else()
     )
 
     target_link_libraries(soft20 fftw3)
+    set_target_properties(soft20 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
 
